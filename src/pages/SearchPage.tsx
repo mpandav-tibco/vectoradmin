@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Search, Loader2, AlertCircle, Sliders, ChevronDown, ChevronUp, Download } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Search, Loader2, AlertCircle, Sliders, ChevronDown, ChevronUp, Download, Boxes } from 'lucide-react'
 import { useCollections } from '@/hooks/useCollections'
 import { useAppStore } from '@/store/appStore'
 import { useConnectionStore } from '@/store/connectionStore'
@@ -94,9 +95,10 @@ function ResultCard({ result, rank }: { result: SearchResult; rank: number }) {
 }
 
 export function SearchPage() {
+  const navigate = useNavigate()
   const { data: collections } = useCollections()
   const config = useConnectionStore((s) => s.config)
-  const { searchType, setSearchType, alpha, setAlpha, topK, setTopK, embeddingConfig, setEmbeddingConfig } = useAppStore()
+  const { searchType, setSearchType, alpha, setAlpha, topK, setTopK, embeddingConfig, setEmbeddingConfig, setVizHighlight } = useAppStore()
 
   const [query, setQuery] = useState('')
   const [className, setClassName] = useState('')
@@ -283,6 +285,13 @@ export function SearchPage() {
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-400">{results.length} results {duration !== null && `in ${duration}ms`}</p>
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => { setVizHighlight({ collectionName: className, ids: results.map((r) => r.id) }); navigate(`/collections/${className}`) }}
+                className="btn-ghost text-xs gap-1"
+                title="Highlight these results in the collection's 3D vector space"
+              >
+                <Boxes className="w-3 h-3" /> View in 3D
+              </button>
               <button onClick={() => exportResults('json')} className="btn-ghost text-xs gap-1" title="Export as JSON">
                 <Download className="w-3 h-3" /> JSON
               </button>

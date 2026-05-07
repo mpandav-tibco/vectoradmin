@@ -4,13 +4,31 @@ import { useCollections, useObjectCount } from '@/hooks/useCollections'
 import { useHealth } from '@/hooks/useHealth'
 import { useConnectionStore } from '@/store/connectionStore'
 import { formatNumber } from '@/lib/utils/format'
+import type { DBCollection } from '@/lib/adapters'
 
-function CollectionStat({ name }: { name: string }) {
-  const { data } = useObjectCount(name)
+const DISTANCE_LABEL: Record<string, string> = {
+  cosine: 'cos', dot: 'dot', euclidean: 'l2', hamming: 'ham',
+}
+
+function CollectionRow({ collection }: { collection: DBCollection }) {
+  const { data: count } = useObjectCount(collection.name)
+  const objCount = collection.objectCount ?? count
   return (
-    <div className="flex items-center justify-between py-2">
-      <span className="text-sm text-gray-300 font-mono">{name}</span>
-      <span className="text-xs text-gray-500">{data !== undefined ? formatNumber(data) + ' objects' : '…'}</span>
+    <div className="flex items-center justify-between py-2.5 gap-3">
+      <span className="text-sm text-gray-300 font-mono truncate">{collection.name}</span>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {collection.vectorDimensions && (
+          <span className="badge bg-surface-300 text-gray-400 text-[10px]">{collection.vectorDimensions}d</span>
+        )}
+        {collection.distance && (
+          <span className="badge bg-surface-300 text-gray-400 text-[10px]">
+            {DISTANCE_LABEL[collection.distance] ?? collection.distance}
+          </span>
+        )}
+        <span className="text-xs text-gray-500 w-20 text-right">
+          {objCount !== undefined ? formatNumber(objCount) + ' obj' : '…'}
+        </span>
+      </div>
     </div>
   )
 }
@@ -90,7 +108,7 @@ export function OverviewPage() {
               onClick={() => navigate(`/collections/${c.name}`)}
               className="w-full text-left hover:bg-surface-200 -mx-4 px-4 transition-colors"
             >
-              <CollectionStat name={c.name} />
+              <CollectionRow collection={c} />
             </button>
           ))}
         </div>

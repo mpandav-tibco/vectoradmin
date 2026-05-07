@@ -2,9 +2,14 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { EmbeddingConfig, LLMConfig, RAGHistoryEntry, SearchType, ChunkConfig } from '@/types/domain'
 
+export interface VizHighlight { collectionName: string; ids: string[] }
+
 interface AppStore {
   selectedCollection: string | null
   setSelectedCollection: (name: string | null) => void
+
+  vizHighlight: VizHighlight | null
+  setVizHighlight: (h: VizHighlight | null) => void
 
   searchType: SearchType
   setSearchType: (type: SearchType) => void
@@ -46,6 +51,9 @@ export const useAppStore = create<AppStore>()(
     (set) => ({
       selectedCollection: null,
       setSelectedCollection: (name) => set({ selectedCollection: name }),
+
+      vizHighlight: null,
+      setVizHighlight: (h) => set({ vizHighlight: h }),
 
       searchType: 'hybrid',
       setSearchType: (type) => set({ searchType: type }),

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Play, Loader2, AlertCircle, ChevronDown, ChevronUp, Clock, Trash2, CheckCircle2 } from 'lucide-react'
+import { Play, Loader2, AlertCircle, ChevronDown, ChevronUp, Clock, Trash2, CheckCircle2, Download } from 'lucide-react'
 import type { RAGStep } from '@/lib/rag/pipeline'
 import { useCollections } from '@/hooks/useCollections'
 import { useAppStore } from '@/store/appStore'
@@ -92,6 +92,24 @@ export function RAGPage() {
     { key: 'retrieving', label: 'Retrieving context' },
     { key: 'generating', label: 'Generating answer' },
   ]
+
+  const exportRAG = (format: 'json' | 'csv') => {
+    const dl = (content: string, mime: string, ext: string) => {
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([content], { type: mime }))
+      a.download = `rag-${className}-${Date.now()}.${ext}`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    }
+    if (format === 'json') {
+      dl(JSON.stringify({ query, answer, context, sources, collectionName: className, searchType, topK, timestamp: Date.now() }, null, 2), 'application/json', 'json')
+    } else {
+      const propKeys = [...new Set(sources.flatMap((r) => Object.keys(r.properties)))]
+      const esc = (v: unknown) => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s }
+      const rows = sources.map((r, i) => [i + 1, r.id, r.score.toFixed(4), ...propKeys.map((k) => r.properties[k])].map(esc).join(','))
+      dl(['rank,id,score,' + propKeys.join(','), ...rows].join('\n'), 'text/csv', 'csv')
+    }
+  }
 
   const handleRun = async () => {
     if (!query.trim() || !className) return
@@ -249,7 +267,7 @@ export function RAGPage() {
         )}
 
         {/* Output tabs */}
-        <div className="flex gap-1 border-b border-border">
+        <div className="flex items-center gap-1 border-b border-border">
           {[
             { key: 'answer', label: 'Answer' },
             { key: 'sources', label: `Sources (${sources.length})` },
@@ -262,6 +280,16 @@ export function RAGPage() {
               {label}
             </button>
           ))}
+          {answer && !loading && (
+            <div className="flex items-center gap-1 ml-auto pb-1">
+              <button onClick={() => exportRAG('json')} className="btn-ghost text-xs gap-1" title="Export full session as JSON">
+                <Download className="w-3 h-3" /> JSON
+              </button>
+              <button onClick={() => exportRAG('csv')} className="btn-ghost text-xs gap-1" title="Export sources as CSV">
+                <Download className="w-3 h-3" /> CSV
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0">

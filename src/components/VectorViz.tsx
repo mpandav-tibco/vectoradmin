@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Loader2, AlertCircle, RefreshCw } from 'lucide-react'
+import { Loader2, AlertCircle, RefreshCw, X } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
+import { useAppStore } from '@/store/appStore'
 import { getAdapter } from '@/lib/adapters'
 import { pca3d } from '@/lib/utils/pca'
 import { cn } from '@/lib/utils/cn'
+
+const HIGHLIGHT_COLOR = '#f59e0b'  // amber — search result highlights
 
 const MAX_SAMPLES = 500
 const PALETTE = [
@@ -52,9 +55,10 @@ const FOV = 2.2
 const AXIS_DIRS: Vec3[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
 const AXIS_LABELS = ['PC1', 'PC2', 'PC3']
 
-function Canvas3D({ coords, getColor, onHoverChange }: {
+function Canvas3D({ coords, getColor, highlightIndices, onHoverChange }: {
   coords: Vec3[]
   getColor: (i: number) => string
+  highlightIndices: Set<number>
   onHoverChange: (i: number | null) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -107,22 +111,23 @@ function Canvas3D({ coords, getColor, onHoverChange }: {
 
     for (const { sx, sy, depth, i } of projected) {
       const nd = Math.max(0, Math.min(1, (depth + 0.9) / 1.8))
-      const r = 2.5 + nd * 2.5
       const isHov = hovered === i
+      const isHL = highlightIndices.has(i)
+      const r = (isHL ? 4 : 2.5) + nd * 2.5
       ctx.beginPath()
       ctx.arc(sx, sy, isHov ? r + 2 : r, 0, Math.PI * 2)
-      ctx.globalAlpha = isHov ? 0.95 : 0.28 + nd * 0.62
-      ctx.fillStyle = getColor(i)
+      ctx.globalAlpha = isHL ? 0.95 : isHov ? 0.95 : 0.28 + nd * 0.62
+      ctx.fillStyle = isHL ? HIGHLIGHT_COLOR : getColor(i)
       ctx.fill()
-      if (isHov) {
+      if (isHov || isHL) {
         ctx.globalAlpha = 1
-        ctx.strokeStyle = '#f8fafc'
-        ctx.lineWidth = 1.5
+        ctx.strokeStyle = isHL ? '#fff7ed' : '#f8fafc'
+        ctx.lineWidth = isHL ? 2 : 1.5
         ctx.stroke()
       }
       ctx.globalAlpha = 1
     }
-  }, [coords, getColor])
+  }, [coords, getColor, highlightIndices])
 
   useEffect(() => { draw() }, [draw])
 
@@ -260,6 +265,16 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
 
   useEffect(() => { load() }, [load])
 
+  const { vizHighlight, setVizHighlight } = useAppStore()
+
+  const highlightIndices = useMemo(() => {
+    const set = new Set<number>()
+    if (!vizHighlight || vizHighlight.collectionName !== collectionName) return set
+    const ids = new Set(vizHighlight.ids)
+    pointMeta.forEach((p, i) => { if (ids.has(p.id)) set.add(i) })
+    return set
+  }, [vizHighlight, collectionName, pointMeta])
+
   const { colorMap, colorValues } = useMemo(() => {
     if (!colorField || pointMeta.length === 0) return { colorMap: new Map<string, string>(), colorValues: [] as string[] }
     const unique = Array.from(new Set(pointMeta.map((p) => String(p.properties[colorField] ?? '')))).slice(0, PALETTE.length)
@@ -349,6 +364,18 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
         </div>
       )}
 
+      {/* Highlight banner */}
+      {highlightIndices.size > 0 && status === 'done' && (
+        <div className="flex items-center justify-between px-3 py-2 bg-amber-900/20 border border-amber-700/40 rounded text-xs">
+          <span className="text-amber-400">
+            {highlightIndices.size} search result{highlightIndices.size !== 1 ? 's' : ''} highlighted in amber
+          </span>
+          <button onClick={() => setVizHighlight(null)} className="text-gray-500 hover:text-gray-300">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Plot */}
       {status === 'done' && pointMeta.length > 0 && (
         <div className="card overflow-hidden">
@@ -356,7 +383,7 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
           {mode === '3d' && (
             <div>
               <p className="text-center text-xs text-gray-600 pt-3 pb-1">Drag to rotate · Hover a point for details</p>
-              <Canvas3D coords={coords3d} getColor={getColor} onHoverChange={setHoveredIdx} />
+              <Canvas3D coords={coords3d} getColor={getColor} highlightIndices={highlightIndices} onHoverChange={setHoveredIdx} />
             </div>
           )}
 
@@ -375,21 +402,25 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
               ))}
               <text x={SVG_SIZE / 2} y={SVG_SIZE - 6} fill="#4b5563" fontSize={11} textAnchor="middle">PC 1</text>
               <text x={12} y={SVG_SIZE / 2} fill="#4b5563" fontSize={11} textAnchor="middle" transform={`rotate(-90 12 ${SVG_SIZE / 2})`}>PC 2</text>
-              {coords2d.map((c, i) => (
-                <circle
-                  key={pointMeta[i].id}
-                  cx={svgX(c.px)}
-                  cy={svgY(c.py)}
-                  r={hoveredIdx === i ? DOT_R + 2 : DOT_R}
-                  fill={getColor(i)}
-                  fillOpacity={hoveredIdx !== null && hoveredIdx !== i ? 0.22 : 0.85}
-                  stroke={hoveredIdx === i ? '#f8fafc' : 'none'}
-                  strokeWidth={1.5}
-                  className="cursor-pointer"
-                  onMouseEnter={() => setHoveredIdx(i)}
-                  onMouseLeave={() => setHoveredIdx(null)}
-                />
-              ))}
+              {coords2d.map((c, i) => {
+                const isHL = highlightIndices.has(i)
+                const isHov = hoveredIdx === i
+                return (
+                  <circle
+                    key={pointMeta[i].id}
+                    cx={svgX(c.px)}
+                    cy={svgY(c.py)}
+                    r={isHL ? DOT_R + 2.5 : isHov ? DOT_R + 2 : DOT_R}
+                    fill={isHL ? HIGHLIGHT_COLOR : getColor(i)}
+                    fillOpacity={isHL ? 0.95 : hoveredIdx !== null && !isHov ? 0.22 : 0.85}
+                    stroke={isHov ? '#f8fafc' : isHL ? '#fff7ed' : 'none'}
+                    strokeWidth={isHL ? 2 : 1.5}
+                    className="cursor-pointer"
+                    onMouseEnter={() => setHoveredIdx(i)}
+                    onMouseLeave={() => setHoveredIdx(null)}
+                  />
+                )
+              })}
             </svg>
           )}
 

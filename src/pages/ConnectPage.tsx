@@ -1,11 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Layers, Loader2, AlertCircle, CheckCircle, Lock, Globe, Server } from 'lucide-react'
+import { Layers, Loader2, AlertCircle, CheckCircle, Lock, Globe, Server, Bookmark, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { buildBaseURL } from '@/lib/weaviate/client'
 import { useConnectionStore } from '@/store/connectionStore'
 import { getAdapter } from '@/lib/adapters'
 import type { ConnectionConfig, VectorDBType } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
+
+const DB_LABELS: Record<string, string> = {
+  weaviate: 'Weaviate', qdrant: 'Qdrant', chroma: 'Chroma',
+  pinecone: 'Pinecone', pgvector: 'pgvector', activespaces: 'ActiveSpaces',
+}
 
 interface DBOption {
   type: VectorDBType
@@ -32,7 +37,7 @@ const DEFAULT_PROXY: Partial<Record<VectorDBType, string>> = {
 
 export function ConnectPage() {
   const navigate = useNavigate()
-  const { setConfig, setStatus } = useConnectionStore()
+  const { setConfig, setStatus, savedConnections, saveConnection, deleteConnection } = useConnectionStore()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<ConnectionConfig>({
@@ -44,6 +49,7 @@ export function ConnectPage() {
     proxyURL: '/api/weaviate',
   })
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showSaved, setShowSaved] = useState(savedConnections.length > 0)
 
   const selectedDB = DB_OPTIONS.find((d) => d.type === form.dbType) ?? DB_OPTIONS[0]
 
@@ -62,19 +68,19 @@ export function ConnectPage() {
     setError(null)
   }
 
-  const handleConnect = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const connectWith = async (cfg: ConnectionConfig) => {
     setLoading(true)
     setError(null)
-    setConfig(form)
+    setConfig(cfg)
     try {
-      const health = await getAdapter(form).checkHealth()
+      const health = await getAdapter(cfg).checkHealth()
       if (health.ready) {
         setStatus('connected', undefined, health.version)
+        saveConnection(cfg)
         navigate('/')
       } else {
         setStatus('error', health.error)
-        setError(health.error ?? `Could not connect to ${selectedDB.label}`)
+        setError(health.error ?? `Could not connect to ${DB_LABELS[cfg.dbType] ?? cfg.dbType}`)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Connection failed'
@@ -84,6 +90,8 @@ export function ConnectPage() {
       setLoading(false)
     }
   }
+
+  const handleConnect = (e: React.FormEvent) => { e.preventDefault(); connectWith(form) }
 
   return (
     <div className="min-h-screen bg-surface flex items-center justify-center p-4">
@@ -262,6 +270,49 @@ export function ConnectPage() {
               )}
             </p>
           </div>
+
+          {/* Saved connections */}
+          {savedConnections.length > 0 && (
+            <div className="border-t border-border pt-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => setShowSaved((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors w-full"
+              >
+                <Bookmark className="w-3.5 h-3.5" />
+                Saved connections ({savedConnections.length})
+                {showSaved ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+              </button>
+              {showSaved && (
+                <div className="space-y-1.5">
+                  {savedConnections.map((sc, idx) => (
+                    <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-surface-200 rounded-lg border border-border">
+                      <span className="text-[10px] font-medium text-accent bg-accent-muted rounded px-1.5 py-0.5 flex-shrink-0">
+                        {DB_LABELS[sc.dbType] ?? sc.dbType}
+                      </span>
+                      <span className="text-xs text-gray-300 truncate flex-1" title={sc.label}>{sc.label}</span>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => connectWith(sc)}
+                        className="text-xs text-accent hover:text-accent/80 font-medium flex-shrink-0"
+                      >
+                        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Connect'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteConnection(idx)}
+                        className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
+                        title="Remove saved connection"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

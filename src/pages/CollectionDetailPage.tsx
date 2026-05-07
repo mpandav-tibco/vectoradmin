@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useAppStore } from '@/store/appStore'
 import { ArrowLeft, Plus, Trash2, RefreshCw, Eye, ChevronLeft, ChevronRight, Loader2, Copy } from 'lucide-react'
 import { useCollection, useObjectCount } from '@/hooks/useCollections'
 import { useObjects, useCreateObject, useDeleteObject } from '@/hooks/useObjects'
@@ -158,7 +159,10 @@ export function CollectionDetailPage() {
   const [selectedObj, setSelectedObj] = useState<DBObject | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [newProps, setNewProps] = useState('{\n  "content": ""\n}')
-  const [activeTab, setActiveTab] = useState<'schema' | 'objects' | 'visualize'>('objects')
+  const { vizHighlight } = useAppStore()
+  const [activeTab, setActiveTab] = useState<'schema' | 'objects' | 'visualize'>(
+    () => vizHighlight?.collectionName === name ? 'visualize' : 'objects'
+  )
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
