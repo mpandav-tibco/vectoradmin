@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Layers, Loader2, AlertCircle, CheckCircle, Lock, Globe, Server } from 'lucide-react'
 import { buildBaseURL } from '@/lib/weaviate/client'
 import { useConnectionStore } from '@/store/connectionStore'
-import { checkHealth } from '@/lib/weaviate/health'
+import { getAdapter } from '@/lib/adapters'
 import type { ConnectionConfig, VectorDBType } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
 
@@ -59,7 +59,7 @@ export function ConnectPage() {
     setError(null)
     setConfig(form)
     try {
-      const health = await checkHealth(form)
+      const health = await getAdapter(form).checkHealth()
       if (health.ready) {
         setStatus('connected', undefined, health.version)
         navigate('/')
@@ -218,7 +218,7 @@ export function ConnectPage() {
             <div className="flex items-center gap-2 px-3 py-2 bg-surface-300 rounded text-xs font-mono text-gray-400">
               <Server className="w-3.5 h-3.5 flex-shrink-0 text-gray-600" />
               <span className="truncate">{buildBaseURL(form)}</span>
-              {form.proxyURL === '/api/weaviate' && (
+              {form.proxyURL?.startsWith('/') && (
                 <span className="ml-auto text-gray-600 font-sans whitespace-nowrap">→ {form.scheme}://{form.host}:{form.port}</span>
               )}
             </div>
@@ -238,8 +238,10 @@ export function ConnectPage() {
 
           <div className="pt-1 border-t border-border">
             <p className="text-xs text-gray-500 text-center">
-              Start Weaviate locally:{' '}
-              <code className="font-mono text-gray-400">docker compose up -d weaviate</code>
+              Start locally:{' '}
+              <code className="font-mono text-gray-400">
+                docker compose{form.dbType !== 'weaviate' ? ` --profile ${form.dbType}` : ''} up -d
+              </code>
             </p>
           </div>
         </div>
