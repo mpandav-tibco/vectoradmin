@@ -25,8 +25,14 @@ async function parseResponse<T>(res: Response): Promise<T> {
     try {
       const text = await res.text()
       if (text) {
-        const body = JSON.parse(text)
-        message = body.error?.message ?? body.message ?? message
+        try {
+          const body = JSON.parse(text)
+          // Weaviate returns errors as an array: {"error": [{"message": "..."}]}
+          const errArr = Array.isArray(body.error) ? body.error : null
+          message = errArr?.[0]?.message ?? body.error?.message ?? body.message ?? text.slice(0, 300) ?? message
+        } catch {
+          message = text.slice(0, 300) || message
+        }
       }
     } catch {}
     throw new ApiError(res.status, message)

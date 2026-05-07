@@ -2,13 +2,14 @@ import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   CheckCircle, AlertCircle, Loader2, Trash2, RefreshCw, Pencil, Plus,
-  ChevronDown, ChevronUp, Globe, Server, Lock, X, Download, Upload,
+  ChevronDown, ChevronUp, Globe, Server, Lock, X, Download, Upload, Cpu,
 } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
 import type { SavedConnection } from '@/store/connectionStore'
+import { useAppStore } from '@/store/appStore'
 import { getAdapter } from '@/lib/adapters'
 import { buildBaseURL } from '@/lib/weaviate/client'
-import type { ConnectionConfig, VectorDBType } from '@/types/domain'
+import type { ConnectionConfig, VectorDBType, EmbeddingConfig, EmbeddingProvider } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
 
 const DB_LABELS: Record<string, string> = {
@@ -23,6 +24,8 @@ const DB_COLORS: Record<string, string> = {
   pinecone: 'bg-blue-900/40 text-blue-400',
   pgvector: 'bg-sky-900/40 text-sky-400',
 }
+
+const EMBED_PROVIDERS: EmbeddingProvider[] = ['ollama', 'openai', 'cohere', 'custom']
 
 interface DBOption { type: VectorDBType; label: string; description: string; defaultPort: number; available: boolean }
 
@@ -42,10 +45,13 @@ const DEFAULT_PROXY: Partial<Record<VectorDBType, string>> = {
 
 type HealthState = 'unchecked' | 'ok' | 'error'
 
+const defaultEmbed = (): EmbeddingConfig => ({ provider: 'ollama', model: 'nomic-embed-text', baseURL: '' })
+
 export function ConnectionsPage() {
   const navigate = useNavigate()
   const { config, savedConnections, saveConnection, updateConnection, deleteConnection, setConfig, setStatus } =
     useConnectionStore()
+  const { setEmbeddingConfig } = useAppStore()
 
   // Per-row health state
   const [healthMap, setHealthMap] = useState<Record<number, HealthState>>({})
@@ -55,6 +61,10 @@ export function ConnectionsPage() {
   // Inline label editing
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [labelDraft, setLabelDraft] = useState('')
+
+  // Per-row embedding config panel
+  const [embedExpandIdx, setEmbedExpandIdx] = useState<number | null>(null)
+  const [embedDraft, setEmbedDraft] = useState<EmbeddingConfig>(defaultEmbed())
 
   // Activate (switch to) a saved connection
   const [activatingIdx, setActivatingIdx] = useState<number | null>(null)
@@ -95,6 +105,8 @@ export function ConnectionsPage() {
       const h = await getAdapter(sc).checkHealth()
       if (h.ready) {
         setStatus('connected', undefined, h.version)
+        // Sync embedding config from this connection profile if one is saved
+        if (sc.embeddingConfig) setEmbeddingConfig(sc.embeddingConfig)
         navigate('/')
       } else {
         setStatus('error', h.error)
@@ -109,6 +121,17 @@ export function ConnectionsPage() {
   const commitLabel = (idx: number) => {
     if (labelDraft.trim()) updateConnection(idx, { label: labelDraft.trim() })
     setEditingIdx(null)
+  }
+
+  const openEmbedPanel = (idx: number) => {
+    if (embedExpandIdx === idx) { setEmbedExpandIdx(null); return }
+    setEmbedDraft(savedConnections[idx].embeddingConfig ?? defaultEmbed())
+    setEmbedExpandIdx(idx)
+  }
+
+  const saveEmbedding = (idx: number) => {
+    updateConnection(idx, { embeddingConfig: embedDraft })
+    setEmbedExpandIdx(null)
   }
 
   // ── add form ───────────────────────────────────────────────────────────────
@@ -195,7 +218,7 @@ export function ConnectionsPage() {
         <div>
           <h2 className="text-lg font-semibold text-gray-100">Saved Connections</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Manage all saved connections. Add extras here for Transfer without changing your active connection.
+            Manage all saved connections. Embedding config is saved per-connection and auto-loaded when you switch.
           </p>
         </div>
         <div className="flex gap-2 flex-shrink-0 mt-0.5">
@@ -248,90 +271,200 @@ export function ConnectionsPage() {
           No saved connections yet — connect to a database to save it, or add one below.
         </div>
       ) : (
-        <div className="card divide-y divide-border">
+        <div className="card overflow-hidden">
           {savedConnections.map((sc, idx) => {
             const isActive = config?.host === sc.host && config?.port === sc.port && config?.dbType === sc.dbType
             const health = healthMap[idx]
+            const embedOpen = embedExpandIdx === idx
+            const hasEmbed = !!sc.embeddingConfig
             return (
-              <div key={idx} className="px-4 py-3 flex items-center gap-3">
-                {/* DB badge */}
-                <span className={cn('text-[10px] font-semibold rounded px-1.5 py-0.5 flex-shrink-0', DB_COLORS[sc.dbType] ?? 'bg-surface-300 text-gray-400')}>
-                  {DB_LABELS[sc.dbType] ?? sc.dbType}
-                </span>
+              <div key={idx} className="border-b border-border last:border-b-0">
+                {/* Main row */}
+                <div className="px-4 py-3 flex items-center gap-3">
+                  {/* DB badge */}
+                  <span className={cn('text-[10px] font-semibold rounded px-1.5 py-0.5 flex-shrink-0', DB_COLORS[sc.dbType] ?? 'bg-surface-300 text-gray-400')}>
+                    {DB_LABELS[sc.dbType] ?? sc.dbType}
+                  </span>
 
-                {/* Label / host */}
-                <div className="flex-1 min-w-0">
-                  {editingIdx === idx ? (
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        autoFocus
-                        className="input py-0.5 text-sm h-7 flex-1"
-                        value={labelDraft}
-                        onChange={(e) => setLabelDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') commitLabel(idx); if (e.key === 'Escape') setEditingIdx(null) }}
-                      />
-                      <button type="button" onClick={() => commitLabel(idx)} className="text-accent text-xs hover:text-accent/80">Save</button>
-                      <button type="button" onClick={() => setEditingIdx(null)}><X className="w-3.5 h-3.5 text-gray-500" /></button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 group">
-                      <span className="text-sm text-gray-200 truncate font-mono">{sc.label}</span>
-                      {isActive && <span className="text-[10px] text-accent bg-accent-muted px-1.5 py-0.5 rounded">active</span>}
-                      <button
-                        type="button"
-                        onClick={() => { setEditingIdx(idx); setLabelDraft(sc.label) }}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <Pencil className="w-3 h-3 text-gray-500 hover:text-gray-300" />
-                      </button>
-                    </div>
+                  {/* Label / host */}
+                  <div className="flex-1 min-w-0">
+                    {editingIdx === idx ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          autoFocus
+                          className="input py-0.5 text-sm h-7 flex-1"
+                          value={labelDraft}
+                          onChange={(e) => setLabelDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') commitLabel(idx); if (e.key === 'Escape') setEditingIdx(null) }}
+                        />
+                        <button type="button" onClick={() => commitLabel(idx)} className="text-accent text-xs hover:text-accent/80">Save</button>
+                        <button type="button" onClick={() => setEditingIdx(null)}><X className="w-3.5 h-3.5 text-gray-500" /></button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 group">
+                        <span className="text-sm text-gray-200 truncate font-mono">{sc.label}</span>
+                        {isActive && <span className="text-[10px] text-accent bg-accent-muted px-1.5 py-0.5 rounded">active</span>}
+                        <button
+                          type="button"
+                          onClick={() => { setEditingIdx(idx); setLabelDraft(sc.label) }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Pencil className="w-3 h-3 text-gray-500 hover:text-gray-300" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Health indicator */}
+                  {health === 'ok' && (
+                    <span className="text-xs text-green-400 flex items-center gap-1 flex-shrink-0">
+                      <CheckCircle className="w-3 h-3" /> {healthMsg[idx]}
+                    </span>
                   )}
-                </div>
+                  {health === 'error' && (
+                    <span className="text-xs text-red-400 flex items-center gap-1 flex-shrink-0 max-w-[140px] truncate" title={healthMsg[idx]}>
+                      <AlertCircle className="w-3 h-3 flex-shrink-0" /> {healthMsg[idx]}
+                    </span>
+                  )}
 
-                {/* Health indicator */}
-                {health === 'ok' && (
-                  <span className="text-xs text-green-400 flex items-center gap-1 flex-shrink-0">
-                    <CheckCircle className="w-3 h-3" /> {healthMsg[idx]}
-                  </span>
-                )}
-                {health === 'error' && (
-                  <span className="text-xs text-red-400 flex items-center gap-1 flex-shrink-0 max-w-[140px] truncate" title={healthMsg[idx]}>
-                    <AlertCircle className="w-3 h-3 flex-shrink-0" /> {healthMsg[idx]}
-                  </span>
-                )}
-
-                {/* Actions */}
-                <button
-                  type="button"
-                  onClick={() => testConnection(idx)}
-                  disabled={testingIdx === idx}
-                  className="btn-ghost text-xs flex-shrink-0"
-                  title="Test connection"
-                >
-                  {testingIdx === idx
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    : <RefreshCw className="w-3.5 h-3.5" />}
-                </button>
-
-                {!isActive && (
+                  {/* Embedding config toggle */}
                   <button
                     type="button"
-                    onClick={() => activateConnection(idx)}
-                    disabled={activatingIdx === idx}
-                    className="btn-primary text-xs px-3 py-1 flex-shrink-0"
+                    onClick={() => openEmbedPanel(idx)}
+                    title={hasEmbed ? `Embedding: ${sc.embeddingConfig?.provider} / ${sc.embeddingConfig?.model}` : 'Set embedding config for this connection'}
+                    className={cn(
+                      'btn-ghost p-1.5 text-xs flex-shrink-0 rounded',
+                      embedOpen ? 'text-accent bg-accent-muted' : hasEmbed ? 'text-accent/70' : 'text-gray-600'
+                    )}
                   >
-                    {activatingIdx === idx ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Use'}
+                    <Cpu className="w-3.5 h-3.5" />
                   </button>
-                )}
 
-                <button
-                  type="button"
-                  onClick={() => deleteConnection(idx)}
-                  className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
-                  title="Remove"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                  {/* Test */}
+                  <button
+                    type="button"
+                    onClick={() => testConnection(idx)}
+                    disabled={testingIdx === idx}
+                    className="btn-ghost text-xs flex-shrink-0"
+                    title="Test connection"
+                  >
+                    {testingIdx === idx
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <RefreshCw className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {!isActive && (
+                    <button
+                      type="button"
+                      onClick={() => activateConnection(idx)}
+                      disabled={activatingIdx === idx}
+                      className="btn-primary text-xs px-3 py-1 flex-shrink-0"
+                    >
+                      {activatingIdx === idx ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Use'}
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => deleteConnection(idx)}
+                    className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
+                    title="Remove"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Embedding config panel */}
+                {embedOpen && (
+                  <div className="px-4 py-4 bg-surface-200 border-t border-border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-gray-400 flex items-center gap-1.5">
+                        <Cpu className="w-3.5 h-3.5" /> Embedding provider
+                      </p>
+                      <p className="text-xs text-gray-600">Loaded automatically when you switch to this connection</p>
+                    </div>
+
+                    {/* Provider selector */}
+                    <div className="flex gap-1.5 flex-wrap">
+                      {EMBED_PROVIDERS.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setEmbedDraft((d) => ({ ...d, provider: p }))}
+                          className={cn(
+                            'px-2.5 py-1 rounded text-xs font-medium border transition-colors',
+                            embedDraft.provider === p
+                              ? 'bg-accent border-accent text-white'
+                              : 'bg-surface-300 border-border text-gray-400 hover:text-gray-100'
+                          )}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Model</label>
+                        <input
+                          className="input text-xs"
+                          value={embedDraft.model}
+                          onChange={(e) => setEmbedDraft((d) => ({ ...d, model: e.target.value }))}
+                          placeholder={embedDraft.provider === 'openai' ? 'text-embedding-3-small' : 'nomic-embed-text'}
+                        />
+                      </div>
+                      {(embedDraft.provider === 'ollama' || embedDraft.provider === 'custom') && (
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Base URL</label>
+                          <input
+                            className="input text-xs font-mono"
+                            value={embedDraft.baseURL ?? ''}
+                            onChange={(e) => setEmbedDraft((d) => ({ ...d, baseURL: e.target.value }))}
+                            placeholder="http://localhost:11434"
+                          />
+                        </div>
+                      )}
+                      {(embedDraft.provider === 'openai' || embedDraft.provider === 'cohere' || embedDraft.provider === 'custom') && (
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">API Key</label>
+                          <input
+                            className="input text-xs font-mono"
+                            type="password"
+                            value={embedDraft.apiKey ?? ''}
+                            onChange={(e) => setEmbedDraft((d) => ({ ...d, apiKey: e.target.value }))}
+                            placeholder="sk-…"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => { updateConnection(idx, { embeddingConfig: undefined }); setEmbedExpandIdx(null) }}
+                        className="text-xs text-gray-600 hover:text-red-400 transition-colors"
+                        title="Clear saved embedding config for this connection"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEmbedExpandIdx(null)}
+                        className="btn-secondary text-xs"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => saveEmbedding(idx)}
+                        className="btn-primary text-xs"
+                        disabled={!embedDraft.model.trim()}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -483,7 +616,7 @@ export function ConnectionsPage() {
             {saveOk && (
               <div className="flex items-center gap-2 p-3 bg-green-900/20 border border-green-800 rounded-md text-sm text-green-400">
                 <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                Connection saved successfully.
+                Connection saved — use the <Cpu className="w-3.5 h-3.5 inline" /> button to set its embedding config.
               </div>
             )}
 

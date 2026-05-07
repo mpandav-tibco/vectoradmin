@@ -1,8 +1,8 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/appStore'
 import type { SearchLogEntry } from '@/store/appStore'
-import { ArrowLeft, Plus, Trash2, RefreshCw, Eye, ChevronLeft, ChevronRight, Loader2, Copy, Search, CheckSquare, Square, X, BarChart2 } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, RefreshCw, Eye, ChevronLeft, ChevronRight, Loader2, Copy, Search, CheckSquare, Square, X, BarChart2, Download } from 'lucide-react'
 import { useCollection, useObjectCount } from '@/hooks/useCollections'
 import { useObjects, useCreateObject, useDeleteObject } from '@/hooks/useObjects'
 import { formatNumber, truncate, formatDate, formatDuration } from '@/lib/utils/format'
@@ -179,6 +179,12 @@ export function CollectionDetailPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
 
+  // Export state
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null)
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+
   const filteredObjects = useMemo(() => {
     const objs = objectsData?.objects ?? []
     if (!filterText.trim()) return objs
@@ -250,6 +256,68 @@ export function CollectionDetailPage() {
     setBulkDeleting(false)
     setBulkProgress(null)
     refetch()
+  }
+
+  const exportCollection = async (format: 'json' | 'jsonl' | 'csv') => {
+    if (!connectionConfig) return
+    setShowExportMenu(false)
+    setExporting(true)
+    try {
+      const adapter = getAdapter(connectionConfig)
+      const allObjects: DBObject[] = []
+      let offset = 0
+      const LIMIT = 200
+      const total = count ?? 0
+      setExportProgress({ done: 0, total })
+      while (true) {
+        const { objects } = await adapter.listObjects(name, LIMIT, offset)
+        if (objects.length === 0) break
+        allObjects.push(...objects)
+        offset += objects.length
+        setExportProgress({ done: allObjects.length, total })
+        if (objects.length < LIMIT) break
+      }
+
+      let content: string
+      let filename: string
+      let mime: string
+
+      const toFlat = (o: DBObject) => ({ id: o.id, ...o.properties, ...(o.vector ? { _vector: o.vector } : {}) })
+
+      if (format === 'json') {
+        content = JSON.stringify(allObjects.map(toFlat), null, 2)
+        filename = `${name}.json`
+        mime = 'application/json'
+      } else if (format === 'jsonl') {
+        content = allObjects.map((o) => JSON.stringify(toFlat(o))).join('\n')
+        filename = `${name}.jsonl`
+        mime = 'application/x-ndjson'
+      } else {
+        const propKeys = [...new Set(allObjects.flatMap((o) => Object.keys(o.properties)))]
+        const headers = ['id', ...propKeys]
+        const csvCell = (v: unknown) => {
+          const s = v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
+          return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+        }
+        const rows = allObjects.map((o) =>
+          headers.map((h) => csvCell(h === 'id' ? o.id : o.properties[h])).join(',')
+        )
+        content = [headers.join(','), ...rows].join('\n')
+        filename = `${name}.csv`
+        mime = 'text/csv'
+      }
+
+      const blob = new Blob([content], { type: mime })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+      setExportProgress(null)
+    }
   }
 
   const totalPages = Math.ceil((count ?? 0) / PAGE_SIZE)
@@ -365,6 +433,35 @@ export function CollectionDetailPage() {
               }
             </p>
             <button onClick={() => refetch()} title="Reload objects" className="btn-ghost text-xs flex-shrink-0"><RefreshCw className="w-3.5 h-3.5" /></button>
+
+            {/* Export dropdown */}
+            <div className="relative flex-shrink-0" ref={exportMenuRef}>
+              <button
+                onClick={() => setShowExportMenu((v) => !v)}
+                disabled={exporting}
+                title="Export all objects as JSON, JSONL, or CSV"
+                className="btn-secondary text-xs"
+              >
+                {exporting && exportProgress
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {exportProgress.done}/{exportProgress.total}</>
+                  : <><Download className="w-3.5 h-3.5" /> Export</>
+                }
+              </button>
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-1 z-20 bg-surface-100 border border-border rounded-lg shadow-xl overflow-hidden min-w-[100px]">
+                  {(['json', 'jsonl', 'csv'] as const).map((fmt) => (
+                    <button
+                      key={fmt}
+                      onClick={() => exportCollection(fmt)}
+                      className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-surface-200 hover:text-gray-100 transition-colors font-mono"
+                    >
+                      {fmt.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button onClick={() => setShowCreate(true)} title="Add a new object to this collection" className="btn-primary text-xs flex-shrink-0">
               <Plus className="w-3.5 h-3.5" /> New Object
             </button>

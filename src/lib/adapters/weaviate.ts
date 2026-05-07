@@ -48,13 +48,18 @@ export class WeaviateAdapter implements DBAdapter {
   }
 
   async createCollection(input: CreateCollectionInput): Promise<void> {
+    // Weaviate class names must start with an uppercase letter
+    const className = input.name.charAt(0).toUpperCase() + input.name.slice(1)
+    // Primitive Weaviate types start with lowercase; cross-reference types start with
+    // uppercase (another class name) and must be excluded when recreating in a new target
+    const primitiveProps = input.properties?.filter((p) => /^[a-z]/.test(p.dataType))
     await createCollection(
       {
-        class: input.name,
+        class: className,
         description: input.description,
         vectorIndexConfig: { distance: input.distance ?? 'cosine' },
         vectorizer: 'none',
-        properties: input.properties?.map((p) => ({
+        properties: primitiveProps?.map((p) => ({
           name: p.name,
           dataType: [p.dataType],
           indexSearchable: true,

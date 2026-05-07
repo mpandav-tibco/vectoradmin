@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { buildBaseURL } from '@/lib/weaviate/client'
 import { useConnectionStore } from '@/store/connectionStore'
+import { useAppStore } from '@/store/appStore'
 import { getAdapter } from '@/lib/adapters'
 import type { ConnectionConfig, VectorDBType } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
@@ -50,6 +51,7 @@ const DEFAULT_PROXY: Partial<Record<VectorDBType, string>> = {
 export function ConnectPage() {
   const navigate = useNavigate()
   const { setConfig, setStatus, savedConnections, saveConnection, deleteConnection } = useConnectionStore()
+  const { setEmbeddingConfig } = useAppStore()
 
   const [loading, setLoading] = useState(false)
   const [connectingIdx, setConnectingIdx] = useState<number | null>(null)
@@ -88,6 +90,11 @@ export function ConnectPage() {
       if (health.ready) {
         setStatus('connected', undefined, health.version)
         saveConnection(cfg)
+        // Sync embedding config if connecting from a saved connection that has one
+        if (savedIdx !== undefined) {
+          const sc = savedConnections[savedIdx]
+          if (sc?.embeddingConfig) setEmbeddingConfig(sc.embeddingConfig)
+        }
         navigate('/')
       } else {
         setStatus('error', health.error)

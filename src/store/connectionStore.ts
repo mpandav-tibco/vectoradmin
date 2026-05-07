@@ -1,10 +1,14 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { ConnectionConfig } from '@/types/domain'
+import type { ConnectionConfig, EmbeddingConfig, LLMConfig } from '@/types/domain'
 
 type Status = 'idle' | 'connecting' | 'connected' | 'error'
 
-export interface SavedConnection extends ConnectionConfig { label: string }
+export interface SavedConnection extends ConnectionConfig {
+  label: string
+  embeddingConfig?: EmbeddingConfig
+  llmConfig?: LLMConfig
+}
 
 interface ConnectionStore {
   config: ConnectionConfig | null
@@ -41,8 +45,12 @@ export const useConnectionStore = create<ConnectionStore>()(
             (c) => c.dbType === config.dbType && c.host === config.host && c.port === config.port
           )
           const updated = [...s.savedConnections]
-          if (idx >= 0) updated[idx] = entry
-          else updated.push(entry)
+          // Preserve embeddingConfig/llmConfig from existing entry when re-saving connection details
+          if (idx >= 0) {
+            updated[idx] = { ...updated[idx], ...entry }
+          } else {
+            updated.push(entry)
+          }
           return { savedConnections: updated }
         }),
       updateConnection: (idx, patch) =>
