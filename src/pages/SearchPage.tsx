@@ -3,7 +3,7 @@ import { Search, Loader2, AlertCircle, Sliders, ChevronDown, ChevronUp } from 'l
 import { useCollections } from '@/hooks/useCollections'
 import { useAppStore } from '@/store/appStore'
 import { useConnectionStore } from '@/store/connectionStore'
-import { semanticSearch, bm25Search, hybridSearch } from '@/lib/weaviate/graphql'
+import { nearVectorSearch, bm25Search, hybridSearch } from '@/lib/weaviate/graphql'
 import { embedSingle } from '@/lib/embedding/client'
 import type { SearchResult, SearchType, EmbeddingConfig } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
@@ -103,11 +103,22 @@ export function SearchPage() {
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showEmbedConfig, setShowEmbedConfig] = useState(false)
+  const [showEmbedConfig, setShowEmbedConfig] = useState(searchType === 'semantic')
   const [duration, setDuration] = useState<number | null>(null)
 
   const selectedCollection = collections?.find((c) => c.class === className)
   const properties = selectedCollection?.properties?.map((p) => p.name) ?? ['content', '_additional']
+
+  const translateError = (err: unknown): string => {
+    const msg = err instanceof Error ? err.message : 'Search failed'
+    if (msg.includes('nearText'))
+      return 'This collection uses vectorizer: none — Semantic search requires a client-side embedding model. Open the Embedding panel, pick a provider (Ollama or OpenAI), and try again.'
+    if (msg.includes('Cannot reach Ollama'))
+      return `${msg}\n\nTip: start Ollama with: docker compose --profile ollama up -d`
+    if (msg.includes('Embedding failed') || msg.includes('embed'))
+      return `Embedding error: ${msg}\n\nOpen the Embedding panel and verify your provider settings.`
+    return msg
+  }
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -116,10 +127,16 @@ export function SearchPage() {
     setError(null)
     const t0 = Date.now()
     try {
-      const props = [...properties, '_additional']
       let res: SearchResult[] = []
       if (searchType === 'semantic') {
-        res = await semanticSearch({ className, concepts: [query], limit: topK, properties, config })
+        // Collections use vectorizer:none — generate embedding client-side, then nearVector
+        let vector: number[]
+        try {
+          vector = await embedSingle(query, embeddingConfig)
+        } catch (embedErr) {
+          throw new Error(`Embedding failed — ${embedErr instanceof Error ? embedErr.message : 'check your embedding provider settings'}`)
+        }
+        res = await nearVectorSearch({ className, vector, limit: topK, properties, config })
       } else if (searchType === 'bm25') {
         res = await bm25Search({ className, query, limit: topK, properties, config })
       } else {
@@ -130,7 +147,7 @@ export function SearchPage() {
       setResults(res)
       setDuration(Date.now() - t0)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed')
+      setError(translateError(err))
     } finally {
       setLoading(false)
     }
@@ -155,7 +172,18 @@ export function SearchPage() {
           </select>
           <div className="flex rounded-md overflow-hidden border border-border">
             {TYPES.map(({ type, label }) => (
-              <button key={type} type="button" onClick={() => setSearchType(type)}
+              <button
+                key={type}
+                type="button"
+                title={
+                  type === 'semantic' ? 'Pure vector similarity — requires an embedding model' :
+                  type === 'bm25' ? 'Keyword search — no embedding needed' :
+                  'Blend of keyword + vector — embedding optional'
+                }
+                onClick={() => {
+                  setSearchType(type)
+                  if (type === 'semantic') setShowEmbedConfig(true)
+                }}
                 className={cn('px-3 py-1.5 text-sm transition-colors', searchType === type
                   ? 'bg-accent text-white' : 'bg-surface-200 text-gray-400 hover:text-gray-100')}>
                 {label}
@@ -163,6 +191,18 @@ export function SearchPage() {
             ))}
           </div>
         </div>
+
+        {/* Semantic mode hint */}
+        {searchType === 'semantic' && (
+          <div className="flex items-start gap-2 px-3 py-2 bg-accent-muted/40 border border-accent/30 rounded text-xs text-gray-400">
+            <span className="text-accent mt-0.5">ℹ</span>
+            <span>
+              Semantic search generates an embedding of your query then finds the closest vectors in the collection.
+              Your collections use <code className="font-mono text-gray-300">vectorizer: none</code>, so you need a local or cloud embedding model —
+              configure one in the <strong className="text-gray-300">Embedding</strong> panel below.
+            </span>
+          </div>
+        )}
 
         {/* Query input */}
         <div className="flex gap-2">
@@ -205,8 +245,9 @@ export function SearchPage() {
       </form>
 
       {error && (
-        <div className="flex items-center gap-2 p-3 bg-red-900/20 border border-red-800 rounded text-sm text-red-400">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+        <div className="flex items-start gap-2 p-4 bg-red-900/20 border border-red-800 rounded text-sm text-red-400">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <p className="whitespace-pre-wrap leading-relaxed">{error}</p>
         </div>
       )}
 
