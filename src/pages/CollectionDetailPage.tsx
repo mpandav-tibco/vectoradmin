@@ -6,6 +6,7 @@ import { useObjects, useCreateObject, useDeleteObject } from '@/hooks/useObjects
 import { formatNumber, formatDate, truncate } from '@/lib/utils/format'
 import { cn } from '@/lib/utils/cn'
 import type { DBObject } from '@/lib/adapters'
+import { VectorViz } from '@/components/VectorViz'
 
 function VectorPreview({ vector }: { vector: number[] }) {
   const preview = vector.slice(0, 20)
@@ -157,7 +158,7 @@ export function CollectionDetailPage() {
   const [selectedObj, setSelectedObj] = useState<DBObject | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [newProps, setNewProps] = useState('{\n  "content": ""\n}')
-  const [activeTab, setActiveTab] = useState<'schema' | 'objects'>('objects')
+  const [activeTab, setActiveTab] = useState<'schema' | 'objects' | 'visualize'>('objects')
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -196,7 +197,7 @@ export function CollectionDetailPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
-        {(['objects', 'schema'] as const).map((t) => (
+        {(['objects', 'schema', 'visualize'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setActiveTab(t)}
@@ -303,6 +304,11 @@ export function CollectionDetailPage() {
             </button>
           </div>
         </>
+      )}
+
+      {/* Visualize tab */}
+      {activeTab === 'visualize' && (
+        <VectorViz collectionName={name} />
       )}
 
       {/* Object detail modal */}

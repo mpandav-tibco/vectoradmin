@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Search, Loader2, AlertCircle, Sliders, ChevronDown, ChevronUp } from 'lucide-react'
+import { Search, Loader2, AlertCircle, Sliders, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { useCollections } from '@/hooks/useCollections'
 import { useAppStore } from '@/store/appStore'
 import { useConnectionStore } from '@/store/connectionStore'
@@ -108,6 +108,33 @@ export function SearchPage() {
 
   const selectedCollection = collections?.find((c) => c.name === className)
   const properties = selectedCollection?.properties?.map((p) => p.name) ?? ['content', '_additional']
+
+  const exportResults = (format: 'json' | 'csv') => {
+    let content: string
+    let mime: string
+    let ext: string
+    if (format === 'json') {
+      content = JSON.stringify({ query, collection: className, searchType, results }, null, 2)
+      mime = 'application/json'
+      ext = 'json'
+    } else {
+      const propKeys = [...new Set(results.flatMap((r) => Object.keys(r.properties)))]
+      const header = ['id', 'score', ...propKeys]
+      const escape = (v: unknown) => {
+        const s = String(v ?? '')
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+      }
+      const rows = results.map((r) => [r.id, r.score, ...propKeys.map((k) => r.properties[k])].map(escape).join(','))
+      content = [header.join(','), ...rows].join('\n')
+      mime = 'text/csv'
+      ext = 'csv'
+    }
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([content], { type: mime }))
+    a.download = `search-${className}-${Date.now()}.${ext}`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
 
   const translateError = (err: unknown): string => {
     const msg = err instanceof Error ? err.message : 'Search failed'
@@ -255,7 +282,15 @@ export function SearchPage() {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-400">{results.length} results {duration !== null && `in ${duration}ms`}</p>
-            <button onClick={() => setResults([])} className="btn-ghost text-xs">Clear</button>
+            <div className="flex items-center gap-1">
+              <button onClick={() => exportResults('json')} className="btn-ghost text-xs gap-1" title="Export as JSON">
+                <Download className="w-3 h-3" /> JSON
+              </button>
+              <button onClick={() => exportResults('csv')} className="btn-ghost text-xs gap-1" title="Export as CSV">
+                <Download className="w-3 h-3" /> CSV
+              </button>
+              <button onClick={() => setResults([])} className="btn-ghost text-xs">Clear</button>
+            </div>
           </div>
           {results.map((r, i) => <ResultCard key={r.id} result={r} rank={i + 1} />)}
         </div>

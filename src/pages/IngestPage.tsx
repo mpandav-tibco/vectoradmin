@@ -7,7 +7,7 @@ import { useAppStore } from '@/store/appStore'
 import { chunkText, extractTextFromFile } from '@/lib/chunker'
 import { embed } from '@/lib/embedding/client'
 import { generateId, formatBytes, formatDuration } from '@/lib/utils/format'
-import type { ChunkConfig, EmbeddingConfig } from '@/types/domain'
+import type { EmbeddingConfig } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
 
 type Step = 'idle' | 'extracting' | 'chunking' | 'embedding' | 'upserting' | 'done' | 'error'
@@ -53,7 +53,7 @@ function EmbeddingConfigPanel({ value, onChange }: { value: EmbeddingConfig; onC
 export function IngestPage() {
   const { data: collections } = useCollections()
   const batchUpsert = useBatchUpsert()
-  const { embeddingConfig, setEmbeddingConfig } = useAppStore()
+  const { embeddingConfig, setEmbeddingConfig, chunkConfig, setChunkConfig } = useAppStore()
 
   const [className, setClassName] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -61,12 +61,6 @@ export function IngestPage() {
   const [showEmbed, setShowEmbed] = useState(false)
   const [progress, setProgress] = useState<Progress>({ step: 'idle', current: 0, total: 0 })
   const [result, setResult] = useState<{ chunks: number; success: number; duration: number; errors: string[] } | null>(null)
-
-  const [chunkConfig, setChunkConfig] = useState<ChunkConfig>({
-    strategy: 'paragraph',
-    size: 512,
-    overlap: 64,
-  })
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles((f) => [...f, ...accepted])

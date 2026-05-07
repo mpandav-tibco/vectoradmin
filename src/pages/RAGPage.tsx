@@ -89,7 +89,7 @@ export function RAGPage() {
 
   const PIPELINE_STEPS: { key: RAGStep; label: string }[] = [
     { key: 'embedding', label: 'Embedding query' },
-    { key: 'retrieving', label: 'Retrieving from Weaviate' },
+    { key: 'retrieving', label: 'Retrieving context' },
     { key: 'generating', label: 'Generating answer' },
   ]
 

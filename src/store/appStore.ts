@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { EmbeddingConfig, LLMConfig, RAGHistoryEntry, SearchType } from '@/types/domain'
+import type { EmbeddingConfig, LLMConfig, RAGHistoryEntry, SearchType, ChunkConfig } from '@/types/domain'
 
 interface AppStore {
   selectedCollection: string | null
@@ -18,6 +18,9 @@ interface AppStore {
 
   llmConfig: LLMConfig
   setLLMConfig: (config: LLMConfig) => void
+
+  chunkConfig: ChunkConfig
+  setChunkConfig: (config: ChunkConfig) => void
 
   ragHistory: RAGHistoryEntry[]
   addRAGHistory: (entry: RAGHistoryEntry) => void
@@ -56,6 +59,9 @@ export const useAppStore = create<AppStore>()(
 
       llmConfig: defaultLLM,
       setLLMConfig: (config) => set({ llmConfig: config }),
+
+      chunkConfig: { strategy: 'paragraph', size: 512, overlap: 64 },
+      setChunkConfig: (config) => set({ chunkConfig: config }),
 
       ragHistory: [],
       addRAGHistory: (entry) =>

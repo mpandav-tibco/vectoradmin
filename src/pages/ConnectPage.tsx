@@ -19,7 +19,7 @@ const DB_OPTIONS: DBOption[] = [
   { type: 'weaviate', label: 'Weaviate', description: 'Open-source vector database', defaultPort: 8080, available: true },
   { type: 'qdrant', label: 'Qdrant', description: 'High-performance vector search', defaultPort: 6333, available: true },
   { type: 'chroma', label: 'Chroma', description: 'AI-native embedding store', defaultPort: 8000, available: true },
-  { type: 'pinecone', label: 'Pinecone', description: 'Managed vector database', defaultPort: 443, available: false },
+  { type: 'pinecone', label: 'Pinecone', description: 'Managed vector database', defaultPort: 443, available: true },
   { type: 'pgvector', label: 'pgvector', description: 'PostgreSQL vector extension', defaultPort: 5432, available: false },
   { type: 'activespaces', label: 'ActiveSpaces', description: 'TIBCO in-memory data grid', defaultPort: 9000, available: false },
 ]
@@ -47,9 +47,18 @@ export function ConnectPage() {
 
   const selectedDB = DB_OPTIONS.find((d) => d.type === form.dbType) ?? DB_OPTIONS[0]
 
+  const isPinecone = form.dbType === 'pinecone'
+
   const handleDBSelect = (opt: DBOption) => {
     if (!opt.available) return
-    setForm((f) => ({ ...f, dbType: opt.type, port: opt.defaultPort, proxyURL: DEFAULT_PROXY[opt.type] ?? '' }))
+    setForm((f) => ({
+      ...f,
+      dbType: opt.type,
+      port: opt.defaultPort,
+      proxyURL: DEFAULT_PROXY[opt.type] ?? '',
+      scheme: opt.type === 'pinecone' ? 'https' : f.scheme,
+      host: opt.type === 'pinecone' ? '' : f.host,
+    }))
     setError(null)
   }
 
@@ -126,14 +135,21 @@ export function ConnectPage() {
           <form onSubmit={handleConnect} className="space-y-4">
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-400 mb-1">Host</label>
+                <label className="block text-xs font-medium text-gray-400 mb-1">
+                  {isPinecone ? 'Index Host' : 'Host'}
+                </label>
                 <input
                   className="input"
                   value={form.host}
                   onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
-                  placeholder="localhost"
+                  placeholder={isPinecone ? 'my-index-abc123.svc.aped-1234.pinecone.io' : 'localhost'}
                   required
                 />
+                {isPinecone && (
+                  <p className="mt-1 text-xs text-gray-600">
+                    Find the index host in your <span className="text-gray-400">Pinecone console → Indexes → your index → Host</span>
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1">Port</label>
@@ -170,14 +186,15 @@ export function ConnectPage() {
 
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">
-                API Key <span className="text-gray-600">(optional)</span>
+                API Key {isPinecone ? <span className="text-red-400">*</span> : <span className="text-gray-600">(optional)</span>}
               </label>
               <input
                 className="input font-mono"
                 type="password"
                 value={form.apiKey}
                 onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
-                placeholder="Leave blank for anonymous access"
+                placeholder={isPinecone ? 'Pinecone API key' : 'Leave blank for anonymous access'}
+                required={isPinecone}
               />
             </div>
 
@@ -238,10 +255,11 @@ export function ConnectPage() {
 
           <div className="pt-1 border-t border-border">
             <p className="text-xs text-gray-500 text-center">
-              Start locally:{' '}
-              <code className="font-mono text-gray-400">
-                docker compose{form.dbType !== 'weaviate' ? ` --profile ${form.dbType}` : ''} up -d
-              </code>
+              {isPinecone ? (
+                <>Create a free index at <span className="text-gray-400">app.pinecone.io</span> — no local setup needed</>
+              ) : (
+                <>Start locally: <code className="font-mono text-gray-400">docker compose{form.dbType !== 'weaviate' ? ` --profile ${form.dbType}` : ''} up -d</code></>
+              )}
             </p>
           </div>
         </div>

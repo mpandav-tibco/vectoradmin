@@ -1,7 +1,7 @@
-import type { SearchResult, EmbeddingConfig, LLMConfig, SearchType, FilterCondition } from '@/types/domain'
+import type { SearchResult, EmbeddingConfig, LLMConfig, SearchType } from '@/types/domain'
 import type { ConnectionConfig } from '@/types/domain'
 import { embedSingle } from '@/lib/embedding/client'
-import { nearVectorSearch, bm25Search, hybridSearch } from '@/lib/weaviate/graphql'
+import { getAdapter } from '@/lib/adapters'
 
 export type RAGStep = 'embedding' | 'retrieving' | 'generating'
 
@@ -14,11 +14,13 @@ export async function runRAGQuery(opts: {
   embeddingConfig: EmbeddingConfig
   llmConfig: LLMConfig
   properties: string[]
-  filter?: FilterCondition
   connectionConfig?: ConnectionConfig | null
   onChunk?: (chunk: string) => void
   onStep?: (step: RAGStep) => void
 }): Promise<{ answer: string; sources: SearchResult[]; context: string }> {
+
+  if (!opts.connectionConfig) throw new Error('Not connected to a database')
+  const adapter = getAdapter(opts.connectionConfig)
 
   // Step 1: retrieve
   let sources: SearchResult[] = []
@@ -32,24 +34,10 @@ export async function runRAGQuery(opts: {
       throw new Error(`Embedding failed — ${err instanceof Error ? err.message : String(err)}`)
     }
     opts.onStep?.('retrieving')
-    sources = await nearVectorSearch({
-      className: opts.className,
-      vector,
-      limit: opts.topK,
-      properties: opts.properties,
-      filter: opts.filter,
-      config: opts.connectionConfig,
-    })
+    sources = await adapter.vectorSearch(opts.className, vector, opts.topK, opts.properties)
   } else if (opts.searchType === 'bm25') {
     opts.onStep?.('retrieving')
-    sources = await bm25Search({
-      className: opts.className,
-      query: opts.query,
-      limit: opts.topK,
-      properties: opts.properties,
-      filter: opts.filter,
-      config: opts.connectionConfig,
-    })
+    sources = await adapter.keywordSearch(opts.className, opts.query, opts.topK, opts.properties)
   } else {
     // hybrid — try to embed, fall back to keyword-only
     let vector: number[] | undefined
@@ -57,19 +45,10 @@ export async function runRAGQuery(opts: {
       opts.onStep?.('embedding')
       vector = await embedSingle(opts.query, opts.embeddingConfig)
     } catch {
-      // embedding unavailable — hybrid will degrade to BM25 (alpha ignored)
+      // embedding unavailable — hybrid will degrade to keyword (alpha ignored)
     }
     opts.onStep?.('retrieving')
-    sources = await hybridSearch({
-      className: opts.className,
-      query: opts.query,
-      vector,
-      alpha: opts.alpha ?? 0.5,
-      limit: opts.topK,
-      properties: opts.properties,
-      filter: opts.filter,
-      config: opts.connectionConfig,
-    })
+    sources = await adapter.hybridSearch(opts.className, opts.query, vector, opts.alpha ?? 0.5, opts.topK, opts.properties)
   }
 
   // Step 2: format context

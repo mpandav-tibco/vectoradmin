@@ -2,6 +2,7 @@ import type { ConnectionConfig } from '@/types/domain'
 import { WeaviateAdapter } from './weaviate'
 import { QdrantAdapter } from './qdrant'
 import { ChromaAdapter } from './chroma'
+import { PineconeAdapter } from './pinecone'
 import type { DBAdapter } from './types'
 
 export function getAdapter(config: ConnectionConfig): DBAdapter {
@@ -9,6 +10,7 @@ export function getAdapter(config: ConnectionConfig): DBAdapter {
     case 'weaviate': return new WeaviateAdapter(config)
     case 'qdrant':   return new QdrantAdapter(config)
     case 'chroma':   return new ChromaAdapter(config)
+    case 'pinecone': return new PineconeAdapter(config)
     default:
       throw new Error(`Database "${config.dbType}" is not yet supported. Coming soon.`)
   }

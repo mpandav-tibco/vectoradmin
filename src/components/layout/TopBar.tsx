@@ -3,6 +3,15 @@ import { LogOut } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
 import { buildBaseURL } from '@/lib/weaviate/client'
 
+const DB_LABELS: Record<string, string> = {
+  weaviate: 'Weaviate',
+  qdrant: 'Qdrant',
+  chroma: 'Chroma',
+  pinecone: 'Pinecone',
+  pgvector: 'pgvector',
+  activespaces: 'ActiveSpaces',
+}
+
 const CRUMBS: Record<string, string> = {
   '/': 'Overview',
   '/collections': 'Collections',
@@ -29,12 +38,17 @@ export function TopBar() {
       <h1 className="text-sm font-medium text-gray-300">{label}</h1>
       <div className="flex items-center gap-3">
         {config && (
-          <span
-            className="text-xs text-gray-500 font-mono"
-            title={`${buildBaseURL(config)} → ${config.scheme}://${config.host}:${config.port}`}
-          >
-            {config.scheme}://{config.host}:{config.port}
-          </span>
+          <>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-accent-muted text-accent font-medium">
+              {DB_LABELS[config.dbType] ?? config.dbType}
+            </span>
+            <span
+              className="text-xs text-gray-500 font-mono"
+              title={`${buildBaseURL(config)} → ${config.scheme}://${config.host}:${config.port}`}
+            >
+              {config.host}:{config.port}
+            </span>
+          </>
         )}
         <button onClick={handleDisconnect} className="btn-ghost p-1.5 rounded" title="Disconnect">
           <LogOut className="w-4 h-4" />

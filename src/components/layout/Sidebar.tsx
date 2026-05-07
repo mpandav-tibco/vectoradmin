@@ -1,8 +1,16 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, Database, Search, Upload, MessageSquare, Layers, Circle } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
-import { buildBaseURL } from '@/lib/weaviate/client'
 import { cn } from '@/lib/utils/cn'
+
+const DB_LABELS: Record<string, string> = {
+  weaviate: 'Weaviate',
+  qdrant: 'Qdrant',
+  chroma: 'Chroma',
+  pinecone: 'Pinecone',
+  pgvector: 'pgvector',
+  activespaces: 'ActiveSpaces',
+}
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Overview', end: true },
@@ -23,8 +31,8 @@ export function Sidebar() {
           <Layers className="w-5 h-5 text-accent" />
           <span className="font-semibold text-sm text-gray-100">Vector Admin</span>
         </div>
-        <div className="mt-1 text-xs text-gray-500 font-mono truncate" title={buildBaseURL(config)}>
-          {config ? buildBaseURL(config).replace(/^https?:\/\//, '') : 'not connected'}
+        <div className="mt-1 text-xs text-gray-500 font-mono truncate" title={config ? `${config.host}:${config.port}` : ''}>
+          {config ? `${config.host}:${config.port}` : 'not connected'}
         </div>
       </div>
 
@@ -40,7 +48,9 @@ export function Sidebar() {
             })}
           />
           <span className="text-xs text-gray-400">
-            {status === 'connected' ? `Weaviate ${version ?? ''}` : status}
+            {status === 'connected'
+              ? `${DB_LABELS[config?.dbType ?? ''] ?? config?.dbType ?? 'DB'} ${version ?? ''}`.trim()
+              : status}
           </span>
         </div>
       </div>
