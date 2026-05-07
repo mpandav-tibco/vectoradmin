@@ -100,17 +100,31 @@ export function TransferPage() {
       addLog(`Source: ${formatNumber(count)} objects in "${sourceCollection}"${srcCol.vectorDimensions ? ` · ${srcCol.vectorDimensions}d` : ''}`)
       addLog(`Target: "${targetCollection}" on ${DB_LABELS[targetConfig.dbType] ?? targetConfig.dbType} ${targetConfig.host}:${targetConfig.port}`)
 
+      // Detect actual vector dimensions from a sample when schema doesn't report them
+      // (e.g. Weaviate with vectorizer:none doesn't embed dimensions in the schema)
+      let dims = srcCol.vectorDimensions && srcCol.vectorDimensions > 0 ? srcCol.vectorDimensions : undefined
+      if (!dims && includeVectors) {
+        addLog('Vector dimensions not in schema — sampling first objects to detect…')
+        const sample = await src.listObjects(sourceCollection, 20, 0)
+        const withVec = sample.objects.find((o) => o.vector && o.vector.length > 0)
+        if (withVec?.vector) {
+          dims = withVec.vector.length
+          addLog(`Detected ${dims}d vectors from sample`)
+        } else {
+          addLog('No vectors found in sample — objects will be transferred without vectors', 'error')
+        }
+      }
+
       // Ensure target collection exists — create it from source schema if missing
       try {
         await tgt.getCollection(targetCollection)
         addLog(`Target collection "${targetCollection}" already exists`)
       } catch {
-        const dims = srcCol.vectorDimensions
         const dist = srcCol.distance ?? 'cosine'
         addLog(
           dims
             ? `Target collection "${targetCollection}" not found — creating (${dims}d, ${dist})…`
-            : `Target collection "${targetCollection}" not found — creating (dimensions unknown, defaulting to 768d)…`
+            : `Target collection "${targetCollection}" not found — creating (no vectors, ${dist})…`
         )
         await tgt.createCollection({
           name: targetCollection,
@@ -123,13 +137,30 @@ export function TransferPage() {
 
       let offset = 0
       let totalTransferred = 0
+      let totalSkipped = 0
 
       while (true) {
         addLog(`Fetching offset ${offset}…`)
         const { objects } = await src.listObjects(sourceCollection, batchSize, offset)
         if (objects.length === 0) break
 
-        const batch = objects.map((o) => ({
+        // Skip objects with missing/empty vectors when target requires them
+        const withVectors = includeVectors
+          ? objects.filter((o) => o.vector && o.vector.length > 0)
+          : objects
+        const skipped = objects.length - withVectors.length
+        if (skipped > 0) {
+          totalSkipped += skipped
+          addLog(`Skipped ${skipped} object${skipped === 1 ? '' : 's'} with no vector in this batch`, 'error')
+        }
+
+        if (withVectors.length === 0) {
+          offset += objects.length
+          if (objects.length < batchSize) break
+          continue
+        }
+
+        const batch = withVectors.map((o) => ({
           id: o.id,
           properties: o.properties,
           vector: includeVectors ? o.vector : undefined,
@@ -147,6 +178,10 @@ export function TransferPage() {
 
         offset += objects.length
         if (objects.length < batchSize) break
+      }
+
+      if (totalSkipped > 0) {
+        addLog(`${totalSkipped} object${totalSkipped === 1 ? '' : 's'} skipped (no stored vector) — transfer properties-only by disabling "Include vectors"`, 'error')
       }
 
       addLog(`Transfer complete — ${formatNumber(totalTransferred)} objects copied.`, 'ok')
