@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Database, Search, Upload, MessageSquare, Layers, Circle, ArrowLeftRight, Unplug, Cable } from 'lucide-react'
+import { LayoutDashboard, Database, Search, Upload, MessageSquare, Layers, Circle, ArrowLeftRight, Unplug, Cable, Sun, Moon } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
+import { useAppStore } from '@/store/appStore'
 import { cn } from '@/lib/utils/cn'
 
 const DB_LABELS: Record<string, string> = {
@@ -25,6 +26,7 @@ const NAV = [
 export function Sidebar() {
   const navigate = useNavigate()
   const { config, status, version, disconnect } = useConnectionStore()
+  const { theme, setTheme } = useAppStore()
 
   return (
     <aside className="w-56 flex-shrink-0 bg-surface-100 border-r border-border flex flex-col">
@@ -82,7 +84,22 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-border space-y-2">
-        <p className="text-xs text-gray-600">Vector Admin UI v0.1</p>
+        {/* Dark / light toggle + version */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-600">v0.1.0</span>
+          <button
+            type="button"
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-200 transition-colors"
+          >
+            {theme === 'dark'
+              ? <><Sun className="w-3.5 h-3.5" /> Light</>
+              : <><Moon className="w-3.5 h-3.5" /> Dark</>
+            }
+          </button>
+        </div>
+
         <button
           type="button"
           onClick={() => { disconnect(); navigate('/connect') }}

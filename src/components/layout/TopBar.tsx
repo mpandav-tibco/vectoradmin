@@ -1,7 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LogOut, Sun, Moon } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
-import { useAppStore } from '@/store/appStore'
 import { buildBaseURL } from '@/lib/weaviate/client'
 
 const DB_LABELS: Record<string, string> = {
@@ -25,7 +24,6 @@ export function TopBar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { config, disconnect } = useConnectionStore()
-  const { theme, setTheme } = useAppStore()
 
   const parts = location.pathname.split('/').filter(Boolean)
   const label = CRUMBS[location.pathname] ?? parts.map((p) => decodeURIComponent(p)).join(' / ')
@@ -52,13 +50,6 @@ export function TopBar() {
             </span>
           </>
         )}
-        <button
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          className="btn-ghost p-1.5 rounded"
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-        </button>
         <button onClick={handleDisconnect} className="btn-ghost p-1.5 rounded" title="Disconnect">
           <LogOut className="w-4 h-4" />
         </button>
