@@ -1,8 +1,10 @@
-# Vector Admin UI
+# Vector Admin 
 
 A browser-based admin UI for vector databases. Connect to Weaviate, Qdrant, Chroma, Pinecone, or pgvector — then browse collections, ingest documents, run search, and experiment with RAG, all from one interface.
 
-![dark mode UI](https://placehold.co/900x400?text=Vector+Admin+UI)
+![dark mode UI](https://placehold.co/1400x400?text=Vector+Admin)
+<img width="1248" height="635" alt="image" src="https://github.com/user-attachments/assets/71859397-1114-4b6b-9153-0ecc4f970911" />
+
 
 ## Supported Databases
 
