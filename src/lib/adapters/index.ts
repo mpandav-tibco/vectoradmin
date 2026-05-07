@@ -3,14 +3,16 @@ import { WeaviateAdapter } from './weaviate'
 import { QdrantAdapter } from './qdrant'
 import { ChromaAdapter } from './chroma'
 import { PineconeAdapter } from './pinecone'
+import { PgvectorAdapter } from './pgvector'
 import type { DBAdapter } from './types'
 
 export function getAdapter(config: ConnectionConfig): DBAdapter {
   switch (config.dbType) {
-    case 'weaviate': return new WeaviateAdapter(config)
-    case 'qdrant':   return new QdrantAdapter(config)
-    case 'chroma':   return new ChromaAdapter(config)
-    case 'pinecone': return new PineconeAdapter(config)
+    case 'weaviate':  return new WeaviateAdapter(config)
+    case 'qdrant':    return new QdrantAdapter(config)
+    case 'chroma':    return new ChromaAdapter(config)
+    case 'pinecone':  return new PineconeAdapter(config)
+    case 'pgvector':  return new PgvectorAdapter(config)
     default:
       throw new Error(`Database "${config.dbType}" is not yet supported. Coming soon.`)
   }

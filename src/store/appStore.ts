@@ -95,6 +95,19 @@ export const useAppStore = create<AppStore>()(
         })),
       clearIngestHistory: () => set({ ingestHistory: [] }),
     }),
-    { name: 'vector-admin-app' }
+    {
+      name: 'vector-admin-app',
+      version: 1,
+      partialize: (state) => ({
+        searchType:      state.searchType,
+        alpha:           state.alpha,
+        topK:            state.topK,
+        embeddingConfig: state.embeddingConfig,
+        llmConfig:       state.llmConfig,
+        chunkConfig:     state.chunkConfig,
+        ragHistory:      state.ragHistory,
+        ingestHistory:   state.ingestHistory,
+      }),
+    }
   )
 )

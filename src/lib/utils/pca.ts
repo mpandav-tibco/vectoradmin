@@ -73,3 +73,56 @@ export function pca3d(vectors: number[][]): Array<[number, number, number]> {
     return [dot(c, pc1), dot(c, pc2), dot(c, pc3)] as [number, number, number]
   })
 }
+
+// ── Random Projection ────────────────────────────────────────────────────────
+
+function lcg(seed: number): () => number {
+  let s = seed >>> 0
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+    return s / 0x100000000
+  }
+}
+
+function makeRandAxis(d: number, rng: () => number): number[] {
+  return normalize(Array.from({ length: d }, () => rng() - 0.5))
+}
+
+function gramSchmidt(axes: number[][]): number[][] {
+  const out: number[][] = []
+  for (const ax of axes) {
+    let v = [...ax]
+    for (const prev of out) {
+      const p = dot(v, prev)
+      v = v.map((x, j) => x - p * prev[j])
+    }
+    out.push(normalize(v))
+  }
+  return out
+}
+
+function rpProject(vectors: number[][], k: number): number[][] {
+  if (vectors.length < 1) return vectors.map(() => new Array(k).fill(0))
+  const d = vectors[0].length
+  const rng = lcg(0xdeadbeef)
+  const axes = gramSchmidt(Array.from({ length: k }, () => makeRandAxis(d, rng)))
+  const mean = new Array<number>(d).fill(0)
+  for (const v of vectors) for (let j = 0; j < d; j++) mean[j] += v[j]
+  for (let j = 0; j < d; j++) mean[j] /= vectors.length
+  return vectors.map((v) => axes.map((ax) => dot(v.map((x, j) => x - mean[j]), ax)))
+}
+
+/**
+ * Random projection onto 3 orthonormal directions.
+ * O(n·d·k) — much faster than PCA for large n or d. Deterministic (fixed seed).
+ */
+export function rp3d(vectors: number[][]): Array<[number, number, number]> {
+  return rpProject(vectors, 3) as Array<[number, number, number]>
+}
+
+/**
+ * Random projection onto 2 orthonormal directions. Deterministic (fixed seed).
+ */
+export function rp2d(vectors: number[][]): Array<[number, number]> {
+  return rpProject(vectors, 2) as Array<[number, number]>
+}

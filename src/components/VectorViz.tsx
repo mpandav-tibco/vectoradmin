@@ -3,12 +3,15 @@ import { Loader2, AlertCircle, RefreshCw, X } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
 import { useAppStore } from '@/store/appStore'
 import { getAdapter } from '@/lib/adapters'
-import { pca3d } from '@/lib/utils/pca'
+import { pca3d, rp3d } from '@/lib/utils/pca'
 import { cn } from '@/lib/utils/cn'
 
-const HIGHLIGHT_COLOR = '#f59e0b'  // amber — search result highlights
+const HIGHLIGHT_COLOR = '#f59e0b'
 
-const MAX_SAMPLES = 500
+const DEFAULT_SAMPLES = 500
+const MIN_SAMPLES = 100
+const MAX_SAMPLES = 2000
+
 const PALETTE = [
   '#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6',
   '#14b8a6', '#f97316', '#ec4899', '#0ea5e9', '#84cc16',
@@ -25,7 +28,6 @@ function rotX(t: number, [x, y, z]: Vec3): Vec3 {
   return [x, y * Math.cos(t) - z * Math.sin(t), y * Math.sin(t) + z * Math.cos(t)]
 }
 
-// Normalize to [-0.9, 0.9] preserving aspect ratio (PCA variance scale intact).
 function normCoords3d(pts: Vec3[]): Vec3[] {
   let maxAbs = 0
   for (const [x, y, z] of pts) maxAbs = Math.max(maxAbs, Math.abs(x), Math.abs(y), Math.abs(z))
@@ -34,7 +36,6 @@ function normCoords3d(pts: Vec3[]): Vec3[] {
   return pts.map(([x, y, z]) => [x * s, y * s, z * s])
 }
 
-// Normalize each axis independently to [0, 1] for 2D SVG.
 function normCoords2d(pts: [number, number][]): Array<{ px: number; py: number }> {
   if (pts.length === 0) return []
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
@@ -52,17 +53,17 @@ interface PointMeta { id: string; properties: Record<string, unknown> }
 
 const CANVAS_SIZE = 480
 const FOV = 2.2
-const AXIS_DIRS: Vec3[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-const AXIS_LABELS = ['PC1', 'PC2', 'PC3']
 
-function Canvas3D({ coords, getColor, highlightIndices, onHoverChange }: {
+function Canvas3D({ coords, getColor, highlightIndices, onHoverChange, axisLabels }: {
   coords: Vec3[]
   getColor: (i: number) => string
   highlightIndices: Set<number>
   onHoverChange: (i: number | null) => void
+  axisLabels: string[]
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const st = useRef({ theta: 0.5, phi: -0.3, dragging: false, last: { x: 0, y: 0 }, hovered: null as number | null })
+  const AXIS_DIRS: Vec3[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
@@ -82,7 +83,6 @@ function Canvas3D({ coords, getColor, highlightIndices, onHoverChange }: {
 
     ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
-    // Axes
     for (let a = 0; a < 3; a++) {
       const [rx, ry, rz] = rotX(phi, rotY(theta, AXIS_DIRS[a]))
       const sz = FOV / (FOV + rz + 1)
@@ -98,10 +98,9 @@ function Canvas3D({ coords, getColor, highlightIndices, onHoverChange }: {
       ctx.setLineDash([])
       ctx.fillStyle = '#6b7280'
       ctx.font = '11px ui-monospace, monospace'
-      ctx.fillText(AXIS_LABELS[a], ex + 4, ey + 4)
+      ctx.fillText(axisLabels[a] ?? `A${a + 1}`, ex + 4, ey + 4)
     }
 
-    // Project + sort back-to-front
     const projected = coords.map((pt, i) => {
       const [rx, ry, rz] = rotX(phi, rotY(theta, pt))
       const sz = FOV / (FOV + rz + 1)
@@ -127,7 +126,7 @@ function Canvas3D({ coords, getColor, highlightIndices, onHoverChange }: {
       }
       ctx.globalAlpha = 1
     }
-  }, [coords, getColor, highlightIndices])
+  }, [coords, getColor, highlightIndices, axisLabels])
 
   useEffect(() => { draw() }, [draw])
 
@@ -208,6 +207,7 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
   const [status, setStatus] = useState<'loading' | 'computing' | 'done' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
   const [pointMeta, setPointMeta] = useState<PointMeta[]>([])
+  const [rawVectors, setRawVectors] = useState<number[][]>([])
   const [coords2d, setCoords2d] = useState<Array<{ px: number; py: number }>>([])
   const [coords3d, setCoords3d] = useState<Vec3[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -216,7 +216,11 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [mode, setMode] = useState<'2d' | '3d'>('3d')
+  const [projection, setProjection] = useState<'pca' | 'rp'>('pca')
+  const [sampleSize, setSampleSize] = useState(DEFAULT_SAMPLES)
+  const [sliderVal, setSliderVal] = useState(DEFAULT_SAMPLES)
 
+  // Fetch raw vectors — reruns when sampleSize is applied
   const load = useCallback(async () => {
     if (!config) return
     setStatus('loading')
@@ -224,9 +228,10 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
     setPointMeta([])
     setCoords2d([])
     setCoords3d([])
+    setRawVectors([])
     try {
       const adapter = getAdapter(config)
-      const { objects, total } = await adapter.listObjects(collectionName, MAX_SAMPLES, 0)
+      const { objects, total } = await adapter.listObjects(collectionName, sampleSize, 0)
       setTotalCount(total)
 
       const withVecs = objects.filter(
@@ -245,25 +250,31 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
       const keys = Array.from(new Set(withVecs.flatMap((o) => Object.keys(o.properties)))).slice(0, 20)
       setPropertyKeys(keys)
       setColorField((cf) => (keys.includes(cf) ? cf : keys[0] ?? ''))
-
-      setStatus('computing')
-      await new Promise<void>((r) => setTimeout(r, 0))
-
-      const raw3d = pca3d(withVecs.map((o) => o.vector))
-      const c3d = normCoords3d(raw3d)
-      const c2d = normCoords2d(c3d.map(([x, y]) => [x, y]))
-
       setPointMeta(withVecs.map((o) => ({ id: o.id, properties: o.properties })))
-      setCoords3d(c3d)
-      setCoords2d(c2d)
-      setStatus('done')
+      setRawVectors(withVecs.map((o) => o.vector))
+      // computation triggered by rawVectors effect below
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load vectors')
       setStatus('error')
     }
-  }, [config, collectionName])
+  }, [config, collectionName, sampleSize])
 
   useEffect(() => { load() }, [load])
+
+  // Recompute projection whenever rawVectors or projection type changes (no re-fetch)
+  useEffect(() => {
+    if (rawVectors.length < 2) return
+    setStatus('computing')
+    const timer = setTimeout(() => {
+      const raw3d = projection === 'pca' ? pca3d(rawVectors) : rp3d(rawVectors)
+      const c3d = normCoords3d(raw3d)
+      const c2d = normCoords2d(c3d.map(([x, y]) => [x, y]))
+      setCoords3d(c3d)
+      setCoords2d(c2d)
+      setStatus('done')
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [rawVectors, projection])
 
   const { vizHighlight, setVizHighlight } = useAppStore()
 
@@ -286,29 +297,53 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
     return colorMap.get(String(pointMeta[i].properties[colorField] ?? '')) ?? PALETTE[0]
   }, [colorField, colorMap, pointMeta])
 
+  const axisLabels = projection === 'pca' ? ['PC1', 'PC2', 'PC3'] : ['RP1', 'RP2', 'RP3']
   const hoveredPoint = hoveredIdx !== null ? pointMeta[hoveredIdx] : null
   const svgX = (px: number) => SVG_PAD + px * SVG_PLOT
   const svgY = (py: number) => SVG_SIZE - SVG_PAD - py * SVG_PLOT
+  const isBusy = status === 'loading' || status === 'computing'
+
+  const applySlider = () => setSampleSize(sliderVal)
 
   return (
     <div className="space-y-4" onMouseMove={(e) => setMousePos({ x: e.clientX, y: e.clientY })}>
       {/* Controls */}
       <div className="flex items-center gap-3 flex-wrap">
         {status === 'done' && (
-          <div className="flex rounded-md overflow-hidden border border-border text-xs font-medium">
-            {(['3d', '2d'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={cn(
-                  'px-3 py-1.5 uppercase tracking-wide transition-colors',
-                  mode === m ? 'bg-accent text-white' : 'bg-surface-200 text-gray-400 hover:text-gray-100'
-                )}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
+          <>
+            {/* 2D / 3D */}
+            <div className="flex rounded-md overflow-hidden border border-border text-xs font-medium">
+              {(['3d', '2d'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={cn(
+                    'px-3 py-1.5 uppercase tracking-wide transition-colors',
+                    mode === m ? 'bg-accent text-white' : 'bg-surface-200 text-gray-400 hover:text-gray-100'
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+
+            {/* PCA / RP */}
+            <div className="flex rounded-md overflow-hidden border border-border text-xs font-medium">
+              {(['pca', 'rp'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setProjection(p)}
+                  title={p === 'pca' ? 'Principal Component Analysis — variance-maximising' : 'Random Projection — faster, reveals non-linear clusters'}
+                  className={cn(
+                    'px-3 py-1.5 uppercase tracking-wide transition-colors',
+                    projection === p ? 'bg-accent text-white' : 'bg-surface-200 text-gray-400 hover:text-gray-100'
+                  )}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
         {propertyKeys.length > 0 && status === 'done' && (
@@ -325,28 +360,48 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
           </div>
         )}
 
+        {/* Sample size slider */}
+        <div className="flex items-center gap-2 ml-auto">
+          <label className="text-xs text-gray-500 whitespace-nowrap">Sample</label>
+          <input
+            type="range"
+            min={MIN_SAMPLES}
+            max={MAX_SAMPLES}
+            step={100}
+            value={sliderVal}
+            onChange={(e) => setSliderVal(Number(e.target.value))}
+            onMouseUp={applySlider}
+            onTouchEnd={applySlider}
+            className="w-24 accent-accent"
+            title={`Sample size: ${sliderVal}`}
+          />
+          <span className="text-xs text-gray-500 w-10 text-right">{sliderVal}</span>
+        </div>
+
         <button
-          onClick={load}
-          disabled={status === 'loading' || status === 'computing'}
+          onClick={() => { setSampleSize(sliderVal); load() }}
+          disabled={isBusy}
           className="btn-ghost text-xs"
           title="Re-fetch and recompute"
         >
-          <RefreshCw className={cn('w-3.5 h-3.5', (status === 'loading' || status === 'computing') && 'animate-spin')} />
+          <RefreshCw className={cn('w-3.5 h-3.5', isBusy && 'animate-spin')} />
         </button>
 
-        {totalCount > MAX_SAMPLES && status === 'done' && (
-          <span className="text-xs text-amber-500 ml-auto">
-            Showing first {MAX_SAMPLES} of {totalCount} objects
+        {totalCount > sampleSize && status === 'done' && (
+          <span className="text-xs text-amber-500">
+            Showing {pointMeta.length} of {totalCount}
           </span>
         )}
       </div>
 
       {/* Loading */}
-      {(status === 'loading' || status === 'computing') && (
+      {isBusy && (
         <div className="card flex flex-col items-center justify-center py-24 gap-3">
           <Loader2 className="w-6 h-6 animate-spin text-accent" />
           <p className="text-sm text-gray-500">
-            {status === 'loading' ? 'Fetching vectors…' : 'Running PCA…'}
+            {status === 'loading'
+              ? 'Fetching vectors…'
+              : projection === 'pca' ? 'Running PCA…' : 'Computing random projection…'}
           </p>
         </div>
       )}
@@ -379,15 +434,19 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
       {/* Plot */}
       {status === 'done' && pointMeta.length > 0 && (
         <div className="card overflow-hidden">
-          {/* 3D canvas */}
           {mode === '3d' && (
             <div>
               <p className="text-center text-xs text-gray-600 pt-3 pb-1">Drag to rotate · Hover a point for details</p>
-              <Canvas3D coords={coords3d} getColor={getColor} highlightIndices={highlightIndices} onHoverChange={setHoveredIdx} />
+              <Canvas3D
+                coords={coords3d}
+                getColor={getColor}
+                highlightIndices={highlightIndices}
+                onHoverChange={setHoveredIdx}
+                axisLabels={axisLabels}
+              />
             </div>
           )}
 
-          {/* 2D SVG */}
           {mode === '2d' && (
             <svg
               viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
@@ -400,8 +459,8 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
                   <line x1={SVG_PAD} y1={svgY(t)} x2={SVG_SIZE - SVG_PAD} y2={svgY(t)} stroke="#374151" strokeWidth={0.5} strokeDasharray="3,3" />
                 </g>
               ))}
-              <text x={SVG_SIZE / 2} y={SVG_SIZE - 6} fill="#4b5563" fontSize={11} textAnchor="middle">PC 1</text>
-              <text x={12} y={SVG_SIZE / 2} fill="#4b5563" fontSize={11} textAnchor="middle" transform={`rotate(-90 12 ${SVG_SIZE / 2})`}>PC 2</text>
+              <text x={SVG_SIZE / 2} y={SVG_SIZE - 6} fill="#4b5563" fontSize={11} textAnchor="middle">{axisLabels[0]}</text>
+              <text x={12} y={SVG_SIZE / 2} fill="#4b5563" fontSize={11} textAnchor="middle" transform={`rotate(-90 12 ${SVG_SIZE / 2})`}>{axisLabels[1]}</text>
               {coords2d.map((c, i) => {
                 const isHL = highlightIndices.has(i)
                 const isHov = hoveredIdx === i
@@ -424,7 +483,6 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
             </svg>
           )}
 
-          {/* Legend */}
           {colorField && colorValues.length > 0 && (
             <div className="border-t border-border px-4 py-3 flex flex-wrap gap-x-4 gap-y-2">
               {colorValues.map((v, i) => (
@@ -440,7 +498,7 @@ export function VectorViz({ collectionName }: { collectionName: string }) {
           )}
 
           <div className="border-t border-border px-4 py-2 text-xs text-gray-600 flex justify-between">
-            <span>{pointMeta.length} vectors · PCA {mode.toUpperCase()} projection</span>
+            <span>{pointMeta.length} vectors · {projection.toUpperCase()} {mode.toUpperCase()} projection</span>
             <span>Hover for details</span>
           </div>
         </div>

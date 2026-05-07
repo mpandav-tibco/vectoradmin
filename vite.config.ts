@@ -30,6 +30,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/chroma/, ''),
       },
+      '/api/pgvector': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/pgvector/, ''),
+      },
       '/api/ollama': {
         target: 'http://localhost:11434',
         changeOrigin: true,

@@ -1,5 +1,5 @@
-import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Database, Search, Upload, MessageSquare, Layers, Circle, ArrowLeftRight } from 'lucide-react'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { LayoutDashboard, Database, Search, Upload, MessageSquare, Layers, Circle, ArrowLeftRight, Unplug, Cable } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
 import { cn } from '@/lib/utils/cn'
 
@@ -19,10 +19,12 @@ const NAV = [
   { to: '/ingest', icon: Upload, label: 'Ingest' },
   { to: '/rag', icon: MessageSquare, label: 'RAG Playground' },
   { to: '/transfer', icon: ArrowLeftRight, label: 'Transfer' },
+  { to: '/connections', icon: Cable, label: 'Connections' },
 ]
 
 export function Sidebar() {
-  const { config, status, version } = useConnectionStore()
+  const navigate = useNavigate()
+  const { config, status, version, disconnect } = useConnectionStore()
 
   return (
     <aside className="w-56 flex-shrink-0 bg-surface-100 border-r border-border flex flex-col">
@@ -79,8 +81,16 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-border">
+      <div className="px-4 py-3 border-t border-border space-y-2">
         <p className="text-xs text-gray-600">Vector Admin UI v0.1</p>
+        <button
+          type="button"
+          onClick={() => { disconnect(); navigate('/connect') }}
+          className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-300 transition-colors w-full"
+        >
+          <Unplug className="w-3 h-3" />
+          Switch connection
+        </button>
       </div>
     </aside>
   )

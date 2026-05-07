@@ -16,6 +16,7 @@ interface ConnectionStore {
   setStatus: (status: Status, error?: string, version?: string) => void
   disconnect: () => void
   saveConnection: (config: ConnectionConfig, label?: string) => void
+  updateConnection: (idx: number, patch: Partial<SavedConnection>) => void
   deleteConnection: (idx: number) => void
 }
 
@@ -44,6 +45,10 @@ export const useConnectionStore = create<ConnectionStore>()(
           else updated.push(entry)
           return { savedConnections: updated }
         }),
+      updateConnection: (idx, patch) =>
+        set((s) => ({
+          savedConnections: s.savedConnections.map((c, i) => i === idx ? { ...c, ...patch } : c),
+        })),
       deleteConnection: (idx) =>
         set((s) => ({ savedConnections: s.savedConnections.filter((_, i) => i !== idx) })),
     }),
