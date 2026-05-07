@@ -47,6 +47,15 @@ type HealthState = 'unchecked' | 'ok' | 'error'
 
 const defaultEmbed = (): EmbeddingConfig => ({ provider: 'ollama', model: 'nomic-embed-text', baseURL: '' })
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timed out after ${ms / 1000}s`)), ms)
+    ),
+  ])
+}
+
 export function ConnectionsPage() {
   const navigate = useNavigate()
   const { config, savedConnections, saveConnection, updateConnection, deleteConnection, setConfig, setStatus } =
@@ -86,7 +95,7 @@ export function ConnectionsPage() {
     setTestingIdx(idx)
     setHealthMap((m) => ({ ...m, [idx]: 'unchecked' }))
     try {
-      const h = await getAdapter(savedConnections[idx]).checkHealth()
+      const h = await withTimeout(getAdapter(savedConnections[idx]).checkHealth(), 8000)
       setHealthMap((m) => ({ ...m, [idx]: h.ready ? 'ok' : 'error' }))
       setHealthMsg((m) => ({ ...m, [idx]: h.ready ? (h.version ?? 'connected') : (h.error ?? 'not ready') }))
     } catch (e) {
@@ -102,7 +111,7 @@ export function ConnectionsPage() {
     const sc = savedConnections[idx]
     setConfig(sc)
     try {
-      const h = await getAdapter(sc).checkHealth()
+      const h = await withTimeout(getAdapter(sc).checkHealth(), 8000)
       if (h.ready) {
         setStatus('connected', undefined, h.version)
         // Sync embedding config from this connection profile if one is saved
@@ -154,7 +163,7 @@ export function ConnectionsPage() {
     setSaveError(null)
     setSaveOk(false)
     try {
-      const h = await getAdapter(addForm).checkHealth()
+      const h = await withTimeout(getAdapter(addForm).checkHealth(), 8000)
       if (!h.ready) {
         setSaveError(h.error ?? 'Connection refused — check host and port.')
       } else {
@@ -247,6 +256,12 @@ export function ConnectionsPage() {
             onChange={importConnections}
           />
         </div>
+      </div>
+
+      {/* Credential storage notice */}
+      <div className="flex items-start gap-2 px-3 py-2 bg-amber-900/10 border border-amber-800/40 rounded text-xs text-amber-500/80">
+        <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+        Connection details (including API keys) are stored in browser localStorage. Avoid saving sensitive credentials on shared machines.
       </div>
 
       {/* Import feedback */}

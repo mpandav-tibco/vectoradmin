@@ -1,4 +1,4 @@
-import type { SearchResult } from '@/types/domain'
+import type { SearchResult, FilterCondition } from '@/types/domain'
 
 export interface DBCollection {
   name: string
@@ -53,8 +53,8 @@ export interface DBAdapter {
   listObjects(collection: string, limit: number, offset: number): Promise<{ objects: DBObject[]; total: number }>
   createObject(collection: string, properties: Record<string, unknown>, vector?: number[]): Promise<string>
   deleteObject(collection: string, id: string): Promise<void>
-  vectorSearch(collection: string, vector: number[], limit: number, properties?: string[]): Promise<SearchResult[]>
-  keywordSearch(collection: string, query: string, limit: number, properties?: string[]): Promise<SearchResult[]>
-  hybridSearch(collection: string, query: string, vector: number[] | undefined, alpha: number, limit: number, properties?: string[]): Promise<SearchResult[]>
+  vectorSearch(collection: string, vector: number[], limit: number, properties?: string[], filters?: FilterCondition[]): Promise<SearchResult[]>
+  keywordSearch(collection: string, query: string, limit: number, properties?: string[], filters?: FilterCondition[]): Promise<SearchResult[]>
+  hybridSearch(collection: string, query: string, vector: number[] | undefined, alpha: number, limit: number, properties?: string[], filters?: FilterCondition[]): Promise<SearchResult[]>
   batchInsert(collection: string, objects: Array<{ id?: string; properties: Record<string, unknown>; vector?: number[] }>): Promise<BatchResult>
 }

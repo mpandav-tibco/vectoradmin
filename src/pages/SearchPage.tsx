@@ -6,9 +6,10 @@ import { useAppStore } from '@/store/appStore'
 import { useConnectionStore } from '@/store/connectionStore'
 import { getAdapter } from '@/lib/adapters'
 import { embedSingle } from '@/lib/embedding/client'
-import type { SearchResult, SearchType, EmbeddingConfig, FilterCondition } from '@/types/domain'
+import type { SearchResult, SearchType, FilterCondition } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
 import { truncate } from '@/lib/utils/format'
+import { EmbeddingConfigPanel } from '@/components/EmbeddingConfigPanel'
 
 const OPERATORS: FilterCondition['operator'][] = [
   'Equal', 'NotEqual', 'Like', 'GreaterThan', 'GreaterThanEqual', 'LessThan', 'LessThanEqual', 'IsNull',
@@ -36,43 +37,6 @@ function applyFilters(results: SearchResult[], filters: FilterCondition[]): Sear
 
 function newFilter(): FilterCondition {
   return { path: '', operator: 'Equal', valueType: 'valueText', value: '' }
-}
-
-function EmbeddingConfigPanel({ value, onChange }: { value: EmbeddingConfig; onChange: (v: EmbeddingConfig) => void }) {
-  return (
-    <div className="grid grid-cols-2 gap-3 p-3 bg-surface-200 rounded-lg border border-border">
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">Provider</label>
-        <select className="input text-xs" value={value.provider}
-          onChange={(e) => onChange({ ...value, provider: e.target.value as EmbeddingConfig['provider'] })}>
-          <option value="ollama">Ollama (local)</option>
-          <option value="openai">OpenAI</option>
-          <option value="cohere">Cohere</option>
-          <option value="custom">Custom (OpenAI-compat)</option>
-        </select>
-      </div>
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">Model</label>
-        <input className="input text-xs" value={value.model} onChange={(e) => onChange({ ...value, model: e.target.value })}
-          placeholder="nomic-embed-text" />
-      </div>
-      {value.provider !== 'ollama' && (
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-500 mb-1">API Key</label>
-          <input className="input text-xs font-mono" type="password" value={value.apiKey ?? ''}
-            onChange={(e) => onChange({ ...value, apiKey: e.target.value })} placeholder="sk-…" />
-        </div>
-      )}
-      {(value.provider === 'ollama' || value.provider === 'custom') && (
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-500 mb-1">Base URL</label>
-          <input className="input text-xs font-mono" value={value.baseURL ?? ''}
-            onChange={(e) => onChange({ ...value, baseURL: e.target.value })}
-            placeholder="http://localhost:11434" />
-        </div>
-      )}
-    </div>
-  )
 }
 
 function ResultCard({ result, rank }: { result: SearchResult; rank: number }) {
@@ -188,6 +152,9 @@ export function SearchPage() {
     try {
       let res: SearchResult[] = []
       const adapter = getAdapter(config!)
+      // Pass filters to adapter — Weaviate applies them server-side via GraphQL where clause.
+      // Other adapters ignore the param; applyFilters() below handles them client-side.
+      const activeFilters = filters.filter((f) => f.path)
       if (searchType === 'semantic') {
         let vector: number[]
         try {
@@ -195,15 +162,17 @@ export function SearchPage() {
         } catch (embedErr) {
           throw new Error(`Embedding failed — ${embedErr instanceof Error ? embedErr.message : 'check your embedding provider settings'}`)
         }
-        res = await adapter.vectorSearch(className, vector, topK, properties)
+        res = await adapter.vectorSearch(className, vector, topK, properties, activeFilters)
       } else if (searchType === 'bm25') {
-        res = await adapter.keywordSearch(className, query, topK, properties)
+        res = await adapter.keywordSearch(className, query, topK, properties, activeFilters)
       } else {
         let vector: number[] | undefined
         try { vector = await embedSingle(query, embeddingConfig) } catch {}
-        res = await adapter.hybridSearch(className, query, vector, alpha, topK, properties)
+        res = await adapter.hybridSearch(className, query, vector, alpha, topK, properties, activeFilters)
       }
-      const filtered = applyFilters(res, filters)
+      // applyFilters is a no-op for Weaviate (already filtered server-side).
+      // For other DBs it narrows the topK results client-side.
+      const filtered = applyFilters(res, activeFilters)
       setResults(filtered)
       const elapsed = Date.now() - t0
       setDuration(elapsed)
@@ -310,7 +279,7 @@ export function SearchPage() {
         </div>
 
         {showEmbedConfig && (searchType === 'semantic' || searchType === 'hybrid') && (
-          <EmbeddingConfigPanel value={embeddingConfig} onChange={setEmbeddingConfig} />
+          <EmbeddingConfigPanel value={embeddingConfig} onChange={setEmbeddingConfig} size="xs" bordered />
         )}
 
         {/* Filters */}
@@ -374,7 +343,7 @@ export function SearchPage() {
                   <Plus className="w-3.5 h-3.5" /> Add filter
                 </button>
                 {filters.length > 0 && (
-                  <p className="text-[10px] text-gray-600">Applied client-side to top-{topK} results</p>
+                  <p className="text-[10px] text-gray-600">Server-side for Weaviate · post-fetch for other databases</p>
                 )}
               </div>
             </div>

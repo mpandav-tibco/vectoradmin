@@ -3,7 +3,7 @@ import { checkHealth } from '@/lib/weaviate/health'
 import { listCollections, getCollection, createCollection, deleteCollection, getObjectCount } from '@/lib/weaviate/schema'
 import { listObjects, createObject, deleteObject, batchUpsert } from '@/lib/weaviate/objects'
 import { nearVectorSearch, bm25Search, hybridSearch as weaviateHybrid } from '@/lib/weaviate/graphql'
-import type { ConnectionConfig } from '@/types/domain'
+import type { ConnectionConfig, FilterCondition } from '@/types/domain'
 import type { DBAdapter, DBCollection, DBObject, DBHealthStatus, CreateCollectionInput, BatchResult } from './types'
 
 const FALLBACK_PROPS = ['content', 'text', 'title']
@@ -100,16 +100,16 @@ export class WeaviateAdapter implements DBAdapter {
     await deleteObject(collection, id, this.config)
   }
 
-  async vectorSearch(collection: string, vector: number[], limit: number, properties?: string[]): Promise<SearchResult[]> {
-    return nearVectorSearch({ className: collection, vector, limit, properties: properties ?? FALLBACK_PROPS, config: this.config })
+  async vectorSearch(collection: string, vector: number[], limit: number, properties?: string[], filters?: FilterCondition[]): Promise<SearchResult[]> {
+    return nearVectorSearch({ className: collection, vector, limit, properties: properties ?? FALLBACK_PROPS, filters, config: this.config })
   }
 
-  async keywordSearch(collection: string, query: string, limit: number, properties?: string[]): Promise<SearchResult[]> {
-    return bm25Search({ className: collection, query, limit, properties: properties ?? FALLBACK_PROPS, config: this.config })
+  async keywordSearch(collection: string, query: string, limit: number, properties?: string[], filters?: FilterCondition[]): Promise<SearchResult[]> {
+    return bm25Search({ className: collection, query, limit, properties: properties ?? FALLBACK_PROPS, filters, config: this.config })
   }
 
-  async hybridSearch(collection: string, query: string, vector: number[] | undefined, alpha: number, limit: number, properties?: string[]): Promise<SearchResult[]> {
-    return weaviateHybrid({ className: collection, query, vector, alpha, limit, properties: properties ?? FALLBACK_PROPS, config: this.config })
+  async hybridSearch(collection: string, query: string, vector: number[] | undefined, alpha: number, limit: number, properties?: string[], filters?: FilterCondition[]): Promise<SearchResult[]> {
+    return weaviateHybrid({ className: collection, query, vector, alpha, limit, properties: properties ?? FALLBACK_PROPS, filters, config: this.config })
   }
 
   async batchInsert(collection: string, objects: Array<{ id?: string; properties: Record<string, unknown>; vector?: number[] }>): Promise<BatchResult> {

@@ -48,6 +48,15 @@ const DEFAULT_PROXY: Partial<Record<VectorDBType, string>> = {
   pgvector: '/api/pgvector',
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timed out after ${ms / 1000}s`)), ms)
+    ),
+  ])
+}
+
 export function ConnectPage() {
   const navigate = useNavigate()
   const { setConfig, setStatus, savedConnections, saveConnection, deleteConnection } = useConnectionStore()
@@ -86,7 +95,7 @@ export function ConnectPage() {
     setError(null)
     setConfig(cfg)
     try {
-      const health = await getAdapter(cfg).checkHealth()
+      const health = await withTimeout(getAdapter(cfg).checkHealth(), 8000)
       if (health.ready) {
         setStatus('connected', undefined, health.version)
         saveConnection(cfg)

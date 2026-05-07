@@ -40,7 +40,11 @@ async function parseResponse<T>(res: Response): Promise<T> {
   if (res.status === 204) return undefined as T
   const text = await res.text()
   if (!text) return undefined as T
-  return JSON.parse(text) as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new ApiError(res.status, `Weaviate returned non-JSON — check host, port and proxy settings`)
+  }
 }
 
 export const weaviateApi = {

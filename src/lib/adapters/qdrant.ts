@@ -26,13 +26,17 @@ export class QdrantAdapter implements DBAdapter {
       ...init,
       headers: { ...this.headers, ...((init?.headers as Record<string, string>) ?? {}) },
     })
+    const text = await res.text().catch(() => '')
     if (!res.ok) {
-      const text = await res.text().catch(() => '')
       let msg = `HTTP ${res.status}`
       try { msg = (JSON.parse(text) as { status?: { error?: string } }).status?.error ?? msg } catch {}
       throw new Error(msg)
     }
-    return res.json() as Promise<T>
+    try {
+      return JSON.parse(text) as T
+    } catch {
+      throw new Error(`Qdrant returned non-JSON (HTTP ${res.status}) — check host, port and proxy settings`)
+    }
   }
 
   async checkHealth(): Promise<DBHealthStatus> {

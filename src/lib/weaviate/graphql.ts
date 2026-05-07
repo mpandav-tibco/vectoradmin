@@ -11,11 +11,16 @@ function escapeGql(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '')
 }
 
-function buildWhereClause(filter?: FilterCondition): string {
-  if (!filter) return ''
-  return `where: { path: ["${escapeGql(filter.path)}"], operator: ${filter.operator}, ${filter.valueType}: ${
-    typeof filter.value === 'string' ? `"${escapeGql(String(filter.value))}"` : filter.value
-  } }`
+function singleWhereObj(f: FilterCondition): string {
+  const val = typeof f.value === 'string' ? `"${escapeGql(String(f.value))}"` : f.value
+  return `{ path: ["${escapeGql(f.path)}"], operator: ${f.operator}, ${f.valueType}: ${val} }`
+}
+
+function buildWhereClause(filters?: FilterCondition[]): string {
+  if (!filters || filters.length === 0) return ''
+  if (filters.length === 1) return `where: ${singleWhereObj(filters[0])}`
+  const operands = filters.map(singleWhereObj).join(', ')
+  return `where: { operator: And, operands: [${operands}] }`
 }
 
 function extractResults(
@@ -49,10 +54,10 @@ export async function semanticSearch(opts: {
   concepts: string[]
   limit: number
   properties: string[]
-  filter?: FilterCondition
+  filters?: FilterCondition[]
   config?: ConnectionConfig | null
 }): Promise<SearchResult[]> {
-  const where = buildWhereClause(opts.filter)
+  const where = buildWhereClause(opts.filters)
   const query = `{
     Get {
       ${opts.className}(
@@ -78,10 +83,10 @@ export async function nearVectorSearch(opts: {
   vector: number[]
   limit: number
   properties: string[]
-  filter?: FilterCondition
+  filters?: FilterCondition[]
   config?: ConnectionConfig | null
 }): Promise<SearchResult[]> {
-  const where = buildWhereClause(opts.filter)
+  const where = buildWhereClause(opts.filters)
   const query = `{
     Get {
       ${opts.className}(
@@ -108,10 +113,10 @@ export async function bm25Search(opts: {
   limit: number
   properties: string[]
   searchProperties?: string[]
-  filter?: FilterCondition
+  filters?: FilterCondition[]
   config?: ConnectionConfig | null
 }): Promise<SearchResult[]> {
-  const where = buildWhereClause(opts.filter)
+  const where = buildWhereClause(opts.filters)
   const searchProps = opts.searchProperties?.length
     ? `, properties: ${JSON.stringify(opts.searchProperties)}`
     : ''
@@ -142,10 +147,10 @@ export async function hybridSearch(opts: {
   alpha: number
   limit: number
   properties: string[]
-  filter?: FilterCondition
+  filters?: FilterCondition[]
   config?: ConnectionConfig | null
 }): Promise<SearchResult[]> {
-  const where = buildWhereClause(opts.filter)
+  const where = buildWhereClause(opts.filters)
   const vectorPart = opts.vector?.length ? `, vector: [${opts.vector.join(',')}]` : ''
   const query = `{
     Get {

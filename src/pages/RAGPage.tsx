@@ -6,28 +6,9 @@ import { useAppStore } from '@/store/appStore'
 import { useConnectionStore } from '@/store/connectionStore'
 import { runRAGQuery } from '@/lib/rag/pipeline'
 import { generateId, truncate, formatDate } from '@/lib/utils/format'
-import type { SearchResult, SearchType, EmbeddingConfig, LLMConfig } from '@/types/domain'
+import type { SearchResult, SearchType, LLMConfig } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
-
-function EmbedPanel({ value, onChange }: { value: EmbeddingConfig; onChange: (v: EmbeddingConfig) => void }) {
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      <select className="input text-xs" value={value.provider}
-        onChange={(e) => onChange({ ...value, provider: e.target.value as EmbeddingConfig['provider'] })}>
-        <option value="ollama">Ollama</option><option value="openai">OpenAI</option>
-        <option value="cohere">Cohere</option><option value="custom">Custom</option>
-      </select>
-      <input className="input text-xs" placeholder="model" value={value.model}
-        onChange={(e) => onChange({ ...value, model: e.target.value })} />
-      {value.provider !== 'ollama' && (
-        <input className="input text-xs font-mono col-span-2" type="password" placeholder="API key"
-          value={value.apiKey ?? ''} onChange={(e) => onChange({ ...value, apiKey: e.target.value })} />
-      )}
-      <input className="input text-xs font-mono col-span-2" placeholder="Base URL"
-        value={value.baseURL ?? ''} onChange={(e) => onChange({ ...value, baseURL: e.target.value })} />
-    </div>
-  )
-}
+import { EmbeddingConfigPanel } from '@/components/EmbeddingConfigPanel'
 
 function LLMPanel({ value, onChange }: { value: LLMConfig; onChange: (v: LLMConfig) => void }) {
   return (
@@ -207,7 +188,7 @@ export function RAGPage() {
             <p className="text-xs font-medium text-gray-400">Embedding</p>
             {showConfig ? <ChevronUp className="w-3 h-3 text-gray-600" /> : <ChevronDown className="w-3 h-3 text-gray-600" />}
           </button>
-          {showConfig && <EmbedPanel value={embeddingConfig} onChange={setEmbeddingConfig} />}
+          {showConfig && <EmbeddingConfigPanel value={embeddingConfig} onChange={setEmbeddingConfig} size="xs" />}
         </div>
 
         {/* LLM */}

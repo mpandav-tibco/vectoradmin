@@ -99,7 +99,12 @@ export const useAppStore = create<AppStore>()(
 
       ragHistory: [],
       addRAGHistory: (entry) =>
-        set((s) => ({ ragHistory: [entry, ...s.ragHistory].slice(0, 20) })),
+        set((s) => ({
+          ragHistory: [
+            { ...entry, sources: entry.sources.map(({ vector: _v, ...rest }) => rest) },
+            ...s.ragHistory,
+          ].slice(0, 20),
+        })),
       clearRAGHistory: () => set({ ragHistory: [] }),
 
       ingestHistory: [],

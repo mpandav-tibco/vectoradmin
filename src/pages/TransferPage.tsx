@@ -231,6 +231,8 @@ export function TransferPage() {
     }
   }
 
+  const isCrossDB = targetMode === 'saved' && config?.dbType !== targetConfig.dbType
+
   const canTransfer =
     !!sourceCollection &&
     !!targetCollection &&
@@ -542,6 +544,17 @@ export function TransferPage() {
           </div>
         )}
       </div>
+
+      {/* Cross-DB warning */}
+      {isCrossDB && (
+        <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-900/15 border border-amber-700/50 rounded-lg text-xs text-amber-400">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+          <span>
+            Cross-database transfer: source is <span className="font-semibold">{DB_LABELS[config?.dbType ?? ''] ?? config?.dbType}</span> and target is <span className="font-semibold">{DB_LABELS[targetConfig.dbType] ?? targetConfig.dbType}</span>.
+            Schema field types may not be compatible — verify the target collection schema and use the mapping table above to skip or rename incompatible properties.
+          </span>
+        </div>
+      )}
 
       {/* Start button */}
       <button

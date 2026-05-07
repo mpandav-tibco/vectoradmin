@@ -7,48 +7,13 @@ import { useAppStore } from '@/store/appStore'
 import { chunkText, extractTextFromFile } from '@/lib/chunker'
 import { embed } from '@/lib/embedding/client'
 import { generateId, formatBytes, formatDuration, formatDate } from '@/lib/utils/format'
-import type { EmbeddingConfig, ChunkConfig } from '@/types/domain'
+import type { ChunkConfig } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
+import { EmbeddingConfigPanel } from '@/components/EmbeddingConfigPanel'
 
 type Step = 'idle' | 'extracting' | 'chunking' | 'embedding' | 'upserting' | 'done' | 'error'
 
 interface Progress { step: Step; current: number; total: number; error?: string }
-
-function EmbeddingConfigPanel({ value, onChange }: { value: EmbeddingConfig; onChange: (v: EmbeddingConfig) => void }) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <div>
-        <label className="block text-xs text-gray-400 mb-1">Provider</label>
-        <select className="input text-sm" value={value.provider}
-          onChange={(e) => onChange({ ...value, provider: e.target.value as EmbeddingConfig['provider'] })}>
-          <option value="ollama">Ollama (local)</option>
-          <option value="openai">OpenAI</option>
-          <option value="cohere">Cohere</option>
-          <option value="custom">Custom</option>
-        </select>
-      </div>
-      <div>
-        <label className="block text-xs text-gray-400 mb-1">Model</label>
-        <input className="input text-sm" value={value.model} onChange={(e) => onChange({ ...value, model: e.target.value })}
-          placeholder="nomic-embed-text" />
-      </div>
-      {value.provider !== 'ollama' && (
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-400 mb-1">API Key</label>
-          <input className="input text-sm font-mono" type="password" value={value.apiKey ?? ''}
-            onChange={(e) => onChange({ ...value, apiKey: e.target.value })} />
-        </div>
-      )}
-      {(value.provider === 'ollama' || value.provider === 'custom') && (
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-400 mb-1">Base URL</label>
-          <input className="input text-sm font-mono" value={value.baseURL ?? ''}
-            onChange={(e) => onChange({ ...value, baseURL: e.target.value })} placeholder="http://localhost:11434" />
-        </div>
-      )}
-    </div>
-  )
-}
 
 export function IngestPage() {
   const { data: collections } = useCollections()
