@@ -1,14 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useConnectionStore } from '@/store/connectionStore'
-import { listCollections, getCollection, createCollection, deleteCollection, getObjectCount } from '@/lib/weaviate/schema'
-import type { WeaviateCollection } from '@/types/domain'
+import { getAdapter } from '@/lib/adapters'
+import type { CreateCollectionInput } from '@/lib/adapters'
 import toast from 'react-hot-toast'
 
 export function useCollections() {
   const config = useConnectionStore((s) => s.config)
   return useQuery({
-    queryKey: ['collections', config?.host],
-    queryFn: () => listCollections(config),
+    queryKey: ['collections', config?.host, config?.dbType],
+    queryFn: () => getAdapter(config!).listCollections(),
     enabled: !!config,
     staleTime: 30_000,
     refetchInterval: 60_000,
@@ -18,8 +18,8 @@ export function useCollections() {
 export function useCollection(name: string) {
   const config = useConnectionStore((s) => s.config)
   return useQuery({
-    queryKey: ['collection', name, config?.host],
-    queryFn: () => getCollection(name, config),
+    queryKey: ['collection', name, config?.host, config?.dbType],
+    queryFn: () => getAdapter(config!).getCollection(name),
     enabled: !!config && !!name,
   })
 }
@@ -27,8 +27,8 @@ export function useCollection(name: string) {
 export function useObjectCount(className: string) {
   const config = useConnectionStore((s) => s.config)
   return useQuery({
-    queryKey: ['objectCount', className, config?.host],
-    queryFn: () => getObjectCount(className, config),
+    queryKey: ['objectCount', className, config?.host, config?.dbType],
+    queryFn: () => getAdapter(config!).getObjectCount(className),
     enabled: !!config && !!className,
     staleTime: 10_000,
   })
@@ -38,7 +38,7 @@ export function useCreateCollection() {
   const config = useConnectionStore((s) => s.config)
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: Partial<WeaviateCollection>) => createCollection(data, config),
+    mutationFn: (input: CreateCollectionInput) => getAdapter(config!).createCollection(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['collections'] })
       toast.success('Collection created')
@@ -51,7 +51,7 @@ export function useDeleteCollection() {
   const config = useConnectionStore((s) => s.config)
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (name: string) => deleteCollection(name, config),
+    mutationFn: (name: string) => getAdapter(config!).deleteCollection(name),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['collections'] })
       toast.success('Collection deleted')

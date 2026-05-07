@@ -17,12 +17,18 @@ interface DBOption {
 
 const DB_OPTIONS: DBOption[] = [
   { type: 'weaviate', label: 'Weaviate', description: 'Open-source vector database', defaultPort: 8080, available: true },
-  { type: 'activespaces', label: 'ActiveSpaces', description: 'TIBCO in-memory data grid', defaultPort: 9000, available: false },
-  { type: 'qdrant', label: 'Qdrant', description: 'High-performance vector search', defaultPort: 6333, available: false },
-  { type: 'chroma', label: 'Chroma', description: 'AI-native embedding store', defaultPort: 8000, available: false },
+  { type: 'qdrant', label: 'Qdrant', description: 'High-performance vector search', defaultPort: 6333, available: true },
+  { type: 'chroma', label: 'Chroma', description: 'AI-native embedding store', defaultPort: 8000, available: true },
   { type: 'pinecone', label: 'Pinecone', description: 'Managed vector database', defaultPort: 443, available: false },
   { type: 'pgvector', label: 'pgvector', description: 'PostgreSQL vector extension', defaultPort: 5432, available: false },
+  { type: 'activespaces', label: 'ActiveSpaces', description: 'TIBCO in-memory data grid', defaultPort: 9000, available: false },
 ]
+
+const DEFAULT_PROXY: Partial<Record<VectorDBType, string>> = {
+  weaviate: '/api/weaviate',
+  qdrant: '/api/qdrant',
+  chroma: '/api/chroma',
+}
 
 export function ConnectPage() {
   const navigate = useNavigate()
@@ -43,7 +49,7 @@ export function ConnectPage() {
 
   const handleDBSelect = (opt: DBOption) => {
     if (!opt.available) return
-    setForm((f) => ({ ...f, dbType: opt.type, port: opt.defaultPort }))
+    setForm((f) => ({ ...f, dbType: opt.type, port: opt.defaultPort, proxyURL: DEFAULT_PROXY[opt.type] ?? '' }))
     setError(null)
   }
 

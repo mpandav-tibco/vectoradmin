@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useConnectionStore } from '@/store/connectionStore'
-import { checkHealth } from '@/lib/weaviate/health'
+import { getAdapter } from '@/lib/adapters'
 import { useEffect } from 'react'
 
 export function useHealth() {
@@ -8,8 +8,8 @@ export function useHealth() {
   const setStatus = useConnectionStore((s) => s.setStatus)
 
   const query = useQuery({
-    queryKey: ['health', config?.host],
-    queryFn: () => checkHealth(config),
+    queryKey: ['health', config?.host, config?.dbType],
+    queryFn: () => getAdapter(config!).checkHealth(),
     enabled: !!config,
     refetchInterval: 15_000,
     retry: 1,

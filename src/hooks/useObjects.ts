@@ -1,26 +1,16 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useConnectionStore } from '@/store/connectionStore'
-import { listObjects, getObject, createObject, updateObject, deleteObject, batchUpsert } from '@/lib/weaviate/objects'
-import type { WeaviateObject } from '@/types/domain'
+import { getAdapter } from '@/lib/adapters'
 import toast from 'react-hot-toast'
 
 export function useObjects(className: string, limit = 25, offset = 0) {
   const config = useConnectionStore((s) => s.config)
   return useQuery({
-    queryKey: ['objects', className, limit, offset, config?.host],
-    queryFn: () => listObjects(className, { limit, offset }, config),
+    queryKey: ['objects', className, limit, offset, config?.host, config?.dbType],
+    queryFn: () => getAdapter(config!).listObjects(className, limit, offset),
     enabled: !!config && !!className,
     placeholderData: keepPreviousData,
     staleTime: 10_000,
-  })
-}
-
-export function useObject(className: string, id: string) {
-  const config = useConnectionStore((s) => s.config)
-  return useQuery({
-    queryKey: ['object', className, id, config?.host],
-    queryFn: () => getObject(className, id, true, config),
-    enabled: !!config && !!className && !!id,
   })
 }
 
@@ -28,27 +18,12 @@ export function useCreateObject() {
   const config = useConnectionStore((s) => s.config)
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (obj: { class: string; properties: Record<string, unknown>; id?: string; vector?: number[] }) =>
-      createObject(obj, config),
-    onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: ['objects', vars.class] })
-      qc.invalidateQueries({ queryKey: ['objectCount', vars.class] })
-      toast.success('Object created')
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-}
-
-export function useUpdateObject() {
-  const config = useConnectionStore((s) => s.config)
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ className, id, properties }: { className: string; id: string; properties: Record<string, unknown> }) =>
-      updateObject(className, id, properties, config),
+    mutationFn: ({ className, properties, vector }: { className: string; properties: Record<string, unknown>; vector?: number[] }) =>
+      getAdapter(config!).createObject(className, properties, vector),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['objects', vars.className] })
-      qc.invalidateQueries({ queryKey: ['object', vars.className, vars.id] })
-      toast.success('Object updated')
+      qc.invalidateQueries({ queryKey: ['objectCount', vars.className] })
+      toast.success('Object created')
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -58,7 +33,8 @@ export function useDeleteObject() {
   const config = useConnectionStore((s) => s.config)
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ className, id }: { className: string; id: string }) => deleteObject(className, id, config),
+    mutationFn: ({ className, id }: { className: string; id: string }) =>
+      getAdapter(config!).deleteObject(className, id),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['objects', vars.className] })
       qc.invalidateQueries({ queryKey: ['objectCount', vars.className] })
@@ -72,10 +48,13 @@ export function useBatchUpsert() {
   const config = useConnectionStore((s) => s.config)
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ className, objects }: {
+    mutationFn: ({
+      className,
+      objects,
+    }: {
       className: string
-      objects: Array<{ class: string; properties: Record<string, unknown>; id?: string; vector?: number[] }>
-    }) => batchUpsert(objects, config),
+      objects: Array<{ id?: string; properties: Record<string, unknown>; vector?: number[] }>
+    }) => getAdapter(config!).batchInsert(className, objects),
     onSuccess: (result, vars) => {
       qc.invalidateQueries({ queryKey: ['objects', vars.className] })
       qc.invalidateQueries({ queryKey: ['objectCount', vars.className] })

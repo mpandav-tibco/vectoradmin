@@ -118,7 +118,6 @@ export function IngestPage() {
       // Upsert
       setProgress({ step: 'upserting', current: 0, total: allChunks.length })
       const objects = allChunks.map((text, i) => ({
-        class: className,
         id: generateId(),
         properties: { content: text },
         vector: vectors[i],
@@ -136,7 +135,7 @@ export function IngestPage() {
     { key: 'extracting', label: 'Extracting text' },
     { key: 'chunking', label: 'Chunking' },
     { key: 'embedding', label: 'Generating embeddings' },
-    { key: 'upserting', label: 'Upserting to Weaviate' },
+    { key: 'upserting', label: 'Upserting to database' },
   ]
 
   const stepOrder = ['idle', 'extracting', 'chunking', 'embedding', 'upserting', 'done', 'error']
@@ -152,7 +151,7 @@ export function IngestPage() {
         <label className="block text-xs text-gray-400 mb-1">Target Collection</label>
         <select className="input" value={className} onChange={(e) => setClassName(e.target.value)}>
           <option value="">Select collection…</option>
-          {collections?.map((c) => <option key={c.class} value={c.class}>{c.class}</option>)}
+          {collections?.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
         </select>
       </div>
 

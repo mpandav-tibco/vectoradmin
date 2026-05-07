@@ -1,0 +1,17 @@
+import type { ConnectionConfig } from '@/types/domain'
+import { WeaviateAdapter } from './weaviate'
+import { QdrantAdapter } from './qdrant'
+import { ChromaAdapter } from './chroma'
+import type { DBAdapter } from './types'
+
+export function getAdapter(config: ConnectionConfig): DBAdapter {
+  switch (config.dbType) {
+    case 'weaviate': return new WeaviateAdapter(config)
+    case 'qdrant':   return new QdrantAdapter(config)
+    case 'chroma':   return new ChromaAdapter(config)
+    default:
+      throw new Error(`Database "${config.dbType}" is not yet supported. Coming soon.`)
+  }
+}
+
+export type { DBAdapter, DBCollection, DBObject, DBProperty, DBHealthStatus, CreateCollectionInput, BatchResult } from './types'

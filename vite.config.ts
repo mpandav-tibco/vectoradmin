@@ -20,6 +20,16 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/weaviate/, ''),
       },
+      '/api/qdrant': {
+        target: 'http://localhost:6333',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/qdrant/, ''),
+      },
+      '/api/chroma': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/chroma/, ''),
+      },
       '/api/ollama': {
         target: 'http://localhost:11434',
         changeOrigin: true,

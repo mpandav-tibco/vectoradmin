@@ -86,11 +86,11 @@ export function OverviewPage() {
           )}
           {collections?.slice(0, 8).map((c) => (
             <button
-              key={c.class}
-              onClick={() => navigate(`/collections/${c.class}`)}
+              key={c.name}
+              onClick={() => navigate(`/collections/${c.name}`)}
               className="w-full text-left hover:bg-surface-200 -mx-4 px-4 transition-colors"
             >
-              <CollectionStat name={c.class} />
+              <CollectionStat name={c.name} />
             </button>
           ))}
         </div>

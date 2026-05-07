@@ -84,7 +84,7 @@ export function RAGPage() {
   const [showConfig, setShowConfig] = useState(true)
   const [activeTab, setActiveTab] = useState<'answer' | 'context' | 'sources' | 'history'>('answer')
 
-  const selectedCollection = collections?.find((c) => c.class === className)
+  const selectedCollection = collections?.find((c) => c.name === className)
   const properties = selectedCollection?.properties?.map((p) => p.name) ?? ['content']
 
   const PIPELINE_STEPS: { key: RAGStep; label: string }[] = [
@@ -160,7 +160,7 @@ export function RAGPage() {
           <label className="block text-xs text-gray-400 mb-1">Collection</label>
           <select className="input text-sm" value={className} onChange={(e) => setClassName(e.target.value)}>
             <option value="">Select…</option>
-            {collections?.map((c) => <option key={c.class} value={c.class}>{c.class}</option>)}
+            {collections?.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
           </select>
         </div>
 

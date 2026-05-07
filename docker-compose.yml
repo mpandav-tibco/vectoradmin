@@ -7,9 +7,6 @@ services:
     restart: unless-stopped
     ports:
       - "3000:80"
-    depends_on:
-      weaviate:
-        condition: service_healthy
     networks:
       - vector-net
 
@@ -39,6 +36,34 @@ services:
     networks:
       - vector-net
 
+  # ── Qdrant — optional: docker compose --profile qdrant up ───────────────────
+  qdrant:
+    profiles: [qdrant]
+    image: qdrant/qdrant:v1.9.4
+    container_name: qdrant-dev
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - vector-net
+
+  # ── Chroma — optional: docker compose --profile chroma up ────────────────────
+  chroma:
+    profiles: [chroma]
+    image: chromadb/chroma:0.5.0
+    container_name: chroma-dev
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      ANONYMIZED_TELEMETRY: "false"
+    networks:
+      - vector-net
+
   # ── Ollama — optional, only starts with: docker compose --profile ollama up ────
   # Pull models on first start:
   #   docker exec ollama-dev ollama pull nomic-embed-text   # embeddings
@@ -61,4 +86,6 @@ networks:
 
 volumes:
   weaviate_data:
+  qdrant_data:
+  chroma_data:
   ollama_data:

@@ -3,7 +3,7 @@ import { Search, Loader2, AlertCircle, Sliders, ChevronDown, ChevronUp } from 'l
 import { useCollections } from '@/hooks/useCollections'
 import { useAppStore } from '@/store/appStore'
 import { useConnectionStore } from '@/store/connectionStore'
-import { nearVectorSearch, bm25Search, hybridSearch } from '@/lib/weaviate/graphql'
+import { getAdapter } from '@/lib/adapters'
 import { embedSingle } from '@/lib/embedding/client'
 import type { SearchResult, SearchType, EmbeddingConfig } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
@@ -106,7 +106,7 @@ export function SearchPage() {
   const [showEmbedConfig, setShowEmbedConfig] = useState(searchType === 'semantic')
   const [duration, setDuration] = useState<number | null>(null)
 
-  const selectedCollection = collections?.find((c) => c.class === className)
+  const selectedCollection = collections?.find((c) => c.name === className)
   const properties = selectedCollection?.properties?.map((p) => p.name) ?? ['content', '_additional']
 
   const translateError = (err: unknown): string => {
@@ -128,21 +128,21 @@ export function SearchPage() {
     const t0 = Date.now()
     try {
       let res: SearchResult[] = []
+      const adapter = getAdapter(config!)
       if (searchType === 'semantic') {
-        // Collections use vectorizer:none — generate embedding client-side, then nearVector
         let vector: number[]
         try {
           vector = await embedSingle(query, embeddingConfig)
         } catch (embedErr) {
           throw new Error(`Embedding failed — ${embedErr instanceof Error ? embedErr.message : 'check your embedding provider settings'}`)
         }
-        res = await nearVectorSearch({ className, vector, limit: topK, properties, config })
+        res = await adapter.vectorSearch(className, vector, topK, properties)
       } else if (searchType === 'bm25') {
-        res = await bm25Search({ className, query, limit: topK, properties, config })
+        res = await adapter.keywordSearch(className, query, topK, properties)
       } else {
         let vector: number[] | undefined
         try { vector = await embedSingle(query, embeddingConfig) } catch {}
-        res = await hybridSearch({ className, query, vector, alpha, limit: topK, properties, config })
+        res = await adapter.hybridSearch(className, query, vector, alpha, topK, properties)
       }
       setResults(res)
       setDuration(Date.now() - t0)
@@ -168,7 +168,7 @@ export function SearchPage() {
         <div className="flex gap-3">
           <select className="input flex-1" value={className} onChange={(e) => setClassName(e.target.value)} required>
             <option value="">Select collection…</option>
-            {collections?.map((c) => <option key={c.class} value={c.class}>{c.class}</option>)}
+            {collections?.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
           </select>
           <div className="flex rounded-md overflow-hidden border border-border">
             {TYPES.map(({ type, label }) => (

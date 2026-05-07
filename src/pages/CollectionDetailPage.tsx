@@ -5,7 +5,7 @@ import { useCollection, useObjectCount } from '@/hooks/useCollections'
 import { useObjects, useCreateObject, useDeleteObject } from '@/hooks/useObjects'
 import { formatNumber, formatDate, truncate } from '@/lib/utils/format'
 import { cn } from '@/lib/utils/cn'
-import type { WeaviateObject } from '@/types/domain'
+import type { DBObject } from '@/lib/adapters'
 
 function VectorPreview({ vector }: { vector: number[] }) {
   const preview = vector.slice(0, 20)
@@ -154,7 +154,7 @@ export function CollectionDetailPage() {
   const createObject = useCreateObject()
   const deleteObject = useDeleteObject()
 
-  const [selectedObj, setSelectedObj] = useState<WeaviateObject | null>(null)
+  const [selectedObj, setSelectedObj] = useState<DBObject | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [newProps, setNewProps] = useState('{\n  "content": ""\n}')
   const [activeTab, setActiveTab] = useState<'schema' | 'objects'>('objects')
@@ -163,7 +163,7 @@ export function CollectionDetailPage() {
     e.preventDefault()
     try {
       const props = JSON.parse(newProps)
-      await createObject.mutateAsync({ class: name, properties: props })
+      await createObject.mutateAsync({ className: name, properties: props })
       setShowCreate(false)
       setNewProps('{\n  "content": ""\n}')
       refetch()
@@ -217,8 +217,8 @@ export function CollectionDetailPage() {
               <tr className="border-b border-border">
                 <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">Property</th>
                 <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">Type</th>
-                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium cursor-help" title="indexSearchable — property is included in BM25 keyword and hybrid search">Searchable</th>
-                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium cursor-help" title="indexFilterable — property can be used in where-clause filters">Filterable</th>
+                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium cursor-help" title="Property is included in BM25 keyword and hybrid search">Searchable</th>
+                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium cursor-help" title="Property can be used in where-clause filters">Filterable</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -226,17 +226,18 @@ export function CollectionDetailPage() {
                 <tr key={p.name} className="hover:bg-surface-200">
                   <td className="px-4 py-2 font-mono text-gray-200">{p.name}</td>
                   <td className="px-4 py-2">
-                    <span className="badge bg-surface-300 text-gray-300">{p.dataType.join(', ')}</span>
+                    <span className="badge bg-surface-300 text-gray-300">{p.dataType}</span>
                   </td>
-                  <td className="px-4 py-2 text-gray-500">{p.indexSearchable ? '✓' : '—'}</td>
-                  <td className="px-4 py-2 text-gray-500">{p.indexFilterable ? '✓' : '—'}</td>
+                  <td className="px-4 py-2 text-gray-500">{p.searchable ? '✓' : '—'}</td>
+                  <td className="px-4 py-2 text-gray-500">{p.filterable ? '✓' : '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div className="px-4 py-3 border-t border-border bg-surface-200 text-xs text-gray-500">
-            Distance: <span className="text-gray-300">{collection.vectorIndexConfig?.distance ?? 'cosine'}</span>
-            {' · '}Vectorizer: <span className="text-gray-300">{collection.vectorizer ?? 'none'}</span>
+            Distance: <span className="text-gray-300">{collection.distance ?? 'cosine'}</span>
+            {collection.vectorDimensions && <>{' · '}Dimensions: <span className="text-gray-300">{collection.vectorDimensions}</span></>}
+            {collection.vectorizer && <>{' · '}Vectorizer: <span className="text-gray-300">{collection.vectorizer}</span></>}
           </div>
         </div>
       )}
