@@ -8,6 +8,7 @@ import { CollectionDetailPage } from '@/pages/CollectionDetailPage'
 import { SearchPage } from '@/pages/SearchPage'
 import { IngestPage } from '@/pages/IngestPage'
 import { RAGPage } from '@/pages/RAGPage'
+import { TransferPage } from '@/pages/TransferPage'
 
 function RequireConnection({ children }: { children: React.ReactNode }) {
   const config = useConnectionStore((s) => s.config)
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="search" element={<SearchPage />} />
           <Route path="ingest" element={<IngestPage />} />
           <Route path="rag" element={<RAGPage />} />
+          <Route path="transfer" element={<TransferPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

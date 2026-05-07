@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Database, Search, Upload, MessageSquare, Layers, Circle } from 'lucide-react'
+import { LayoutDashboard, Database, Search, Upload, MessageSquare, Layers, Circle, ArrowLeftRight } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
 import { cn } from '@/lib/utils/cn'
 
@@ -18,6 +18,7 @@ const NAV = [
   { to: '/search', icon: Search, label: 'Search' },
   { to: '/ingest', icon: Upload, label: 'Ingest' },
   { to: '/rag', icon: MessageSquare, label: 'RAG Playground' },
+  { to: '/transfer', icon: ArrowLeftRight, label: 'Transfer' },
 ]
 
 export function Sidebar() {

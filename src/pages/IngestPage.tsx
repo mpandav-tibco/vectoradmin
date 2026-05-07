@@ -1,13 +1,13 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, X, Loader2, CheckCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { Upload, FileText, X, Loader2, CheckCircle, AlertCircle, ChevronDown, ChevronUp, History, Trash2, TriangleAlert } from 'lucide-react'
 import { useCollections } from '@/hooks/useCollections'
 import { useBatchUpsert } from '@/hooks/useObjects'
 import { useAppStore } from '@/store/appStore'
 import { chunkText, extractTextFromFile } from '@/lib/chunker'
 import { embed } from '@/lib/embedding/client'
-import { generateId, formatBytes, formatDuration } from '@/lib/utils/format'
-import type { EmbeddingConfig } from '@/types/domain'
+import { generateId, formatBytes, formatDuration, formatDate } from '@/lib/utils/format'
+import type { EmbeddingConfig, ChunkConfig } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
 
 type Step = 'idle' | 'extracting' | 'chunking' | 'embedding' | 'upserting' | 'done' | 'error'
@@ -53,14 +53,24 @@ function EmbeddingConfigPanel({ value, onChange }: { value: EmbeddingConfig; onC
 export function IngestPage() {
   const { data: collections } = useCollections()
   const batchUpsert = useBatchUpsert()
-  const { embeddingConfig, setEmbeddingConfig, chunkConfig, setChunkConfig } = useAppStore()
+  const { embeddingConfig, setEmbeddingConfig, chunkConfig, setChunkConfig, ingestHistory, startIngestJob, updateIngestJob, clearIngestHistory } = useAppStore()
 
   const [className, setClassName] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [pastedText, setPastedText] = useState('')
   const [showEmbed, setShowEmbed] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [progress, setProgress] = useState<Progress>({ step: 'idle', current: 0, total: 0 })
   const [result, setResult] = useState<{ chunks: number; success: number; duration: number; errors: string[] } | null>(null)
+  const [jobId] = useState(() => generateId())
+
+  // Mark any jobs still "running" on mount as interrupted (tab was closed mid-job)
+  useEffect(() => {
+    ingestHistory.forEach((r) => {
+      if (r.status === 'running') updateIngestJob(r.id, { status: 'interrupted' })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles((f) => [...f, ...accepted])
@@ -79,6 +89,15 @@ export function IngestPage() {
     setResult(null)
     const t0 = Date.now()
 
+    startIngestJob({
+      id: jobId,
+      timestamp: Date.now(),
+      className,
+      fileNames: files.map((f) => f.name),
+      status: 'running',
+      stage: 'extracting',
+    })
+
     try {
       // Extract text
       setProgress({ step: 'extracting', current: 0, total: files.length + (pastedText ? 1 : 0) })
@@ -90,6 +109,7 @@ export function IngestPage() {
       if (pastedText.trim()) texts.push(pastedText)
 
       // Chunk
+      updateIngestJob(jobId, { stage: 'chunking' })
       setProgress({ step: 'chunking', current: 0, total: texts.length })
       const allChunks: string[] = []
       for (const text of texts) {
@@ -97,8 +117,10 @@ export function IngestPage() {
         allChunks.push(...chunks.map((c) => c.text))
         setProgress((p) => ({ ...p, current: p.current + 1 }))
       }
+      updateIngestJob(jobId, { chunks: allChunks.length })
 
       // Embed in batches of 50
+      updateIngestJob(jobId, { stage: 'embedding' })
       setProgress({ step: 'embedding', current: 0, total: allChunks.length })
       const BATCH = 50
       const vectors: number[][] = []
@@ -107,9 +129,11 @@ export function IngestPage() {
         const batchVectors = await embed(batch, embeddingConfig)
         vectors.push(...batchVectors)
         setProgress((p) => ({ ...p, current: Math.min(i + BATCH, allChunks.length) }))
+        updateIngestJob(jobId, { succeeded: Math.min(i + BATCH, allChunks.length) })
       }
 
       // Upsert
+      updateIngestJob(jobId, { stage: 'upserting' })
       setProgress({ step: 'upserting', current: 0, total: allChunks.length })
       const objects = allChunks.map((text, i) => ({
         id: generateId(),
@@ -118,10 +142,14 @@ export function IngestPage() {
       }))
 
       const res = await batchUpsert.mutateAsync({ className, objects })
+      const duration = Date.now() - t0
       setProgress({ step: 'done', current: allChunks.length, total: allChunks.length })
-      setResult({ chunks: allChunks.length, success: res.success, duration: Date.now() - t0, errors: res.errors })
+      setResult({ chunks: allChunks.length, success: res.success, duration, errors: res.errors })
+      updateIngestJob(jobId, { status: 'done', succeeded: res.success, failed: res.errors.length, duration })
     } catch (err) {
-      setProgress({ step: 'error', current: 0, total: 0, error: err instanceof Error ? err.message : 'Failed' })
+      const msg = err instanceof Error ? err.message : 'Failed'
+      setProgress({ step: 'error', current: 0, total: 0, error: msg })
+      updateIngestJob(jobId, { status: 'error', errorMessage: msg })
     }
   }
 
@@ -289,6 +317,60 @@ export function IngestPage() {
           </div>
           {result.errors.length > 0 && (
             <div className="text-xs text-red-400">{result.errors.length} errors: {result.errors[0]}</div>
+          )}
+        </div>
+      )}
+
+      {/* Ingest history */}
+      {ingestHistory.length > 0 && (
+        <div className="border-t border-border pt-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <History className="w-3.5 h-3.5" />
+              Job history ({ingestHistory.length})
+              {ingestHistory.some((r) => r.status === 'interrupted') && (
+                <span className="badge bg-amber-900/30 text-amber-400 text-[10px] ml-1">interrupted</span>
+              )}
+              {showHistory ? <ChevronUp className="w-3 h-3 ml-1" /> : <ChevronDown className="w-3 h-3 ml-1" />}
+            </button>
+            <button onClick={clearIngestHistory} className="text-xs text-gray-600 hover:text-red-400 flex items-center gap-1">
+              <Trash2 className="w-3 h-3" /> Clear
+            </button>
+          </div>
+          {showHistory && (
+            <div className="space-y-1.5">
+              {ingestHistory.map((r) => (
+                <div key={r.id} className={cn('card px-3 py-2.5 flex items-start gap-3', r.status === 'interrupted' && 'border-amber-800/50')}>
+                  <div className="mt-0.5 flex-shrink-0">
+                    {r.status === 'done' && <CheckCircle className="w-3.5 h-3.5 text-green-400" />}
+                    {r.status === 'error' && <AlertCircle className="w-3.5 h-3.5 text-red-400" />}
+                    {r.status === 'interrupted' && <TriangleAlert className="w-3.5 h-3.5 text-amber-400" />}
+                    {r.status === 'running' && <Loader2 className="w-3.5 h-3.5 text-accent animate-spin" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-gray-300">{r.className}</span>
+                      <span className="text-[10px] text-gray-600">{formatDate(r.timestamp)}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {r.status === 'interrupted'
+                        ? `Interrupted at ${r.stage ?? 'unknown stage'} · ${r.chunks} chunks · ${r.succeeded} embedded`
+                        : r.status === 'error'
+                        ? r.errorMessage
+                        : r.status === 'done'
+                        ? `${r.chunks} chunks · ${r.succeeded} upserted${r.duration ? ` · ${formatDuration(r.duration)}` : ''}`
+                        : `${r.stage} · ${r.succeeded}/${r.chunks}`}
+                    </p>
+                    {r.fileNames.length > 0 && (
+                      <p className="text-[10px] text-gray-600 mt-0.5 truncate">{r.fileNames.join(', ')}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

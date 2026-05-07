@@ -121,3 +121,17 @@ export interface FilterCondition {
   valueType: 'valueText' | 'valueInt' | 'valueNumber' | 'valueBoolean' | 'valueDate'
   value: string | number | boolean
 }
+
+export interface IngestRecord {
+  id: string
+  timestamp: number
+  className: string
+  fileNames: string[]
+  status: 'running' | 'done' | 'error' | 'interrupted'
+  stage?: string
+  chunks: number
+  succeeded: number
+  failed: number
+  duration?: number
+  errorMessage?: string
+}

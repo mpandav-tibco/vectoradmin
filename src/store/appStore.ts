@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { EmbeddingConfig, LLMConfig, RAGHistoryEntry, SearchType, ChunkConfig } from '@/types/domain'
+import type { EmbeddingConfig, LLMConfig, RAGHistoryEntry, SearchType, ChunkConfig, IngestRecord } from '@/types/domain'
 
 export interface VizHighlight { collectionName: string; ids: string[] }
 
@@ -30,6 +30,11 @@ interface AppStore {
   ragHistory: RAGHistoryEntry[]
   addRAGHistory: (entry: RAGHistoryEntry) => void
   clearRAGHistory: () => void
+
+  ingestHistory: IngestRecord[]
+  startIngestJob: (record: Omit<IngestRecord, 'chunks' | 'succeeded' | 'failed'>) => void
+  updateIngestJob: (id: string, patch: Partial<IngestRecord>) => void
+  clearIngestHistory: () => void
 }
 
 const defaultEmbedding: EmbeddingConfig = {
@@ -75,6 +80,20 @@ export const useAppStore = create<AppStore>()(
       addRAGHistory: (entry) =>
         set((s) => ({ ragHistory: [entry, ...s.ragHistory].slice(0, 20) })),
       clearRAGHistory: () => set({ ragHistory: [] }),
+
+      ingestHistory: [],
+      startIngestJob: (record) =>
+        set((s) => ({
+          ingestHistory: [
+            { ...record, chunks: 0, succeeded: 0, failed: 0 },
+            ...s.ingestHistory,
+          ].slice(0, 30),
+        })),
+      updateIngestJob: (id, patch) =>
+        set((s) => ({
+          ingestHistory: s.ingestHistory.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+        })),
+      clearIngestHistory: () => set({ ingestHistory: [] }),
     }),
     { name: 'vector-admin-app' }
   )

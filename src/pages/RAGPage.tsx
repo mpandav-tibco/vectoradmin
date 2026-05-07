@@ -330,22 +330,59 @@ export function RAGPage() {
           {/* History */}
           {activeTab === 'history' && (
             <div className="space-y-2">
-              <div className="flex justify-end">
+              <div className="flex items-center gap-2 justify-end">
+                {ragHistory.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const a = document.createElement('a')
+                      a.href = URL.createObjectURL(new Blob([JSON.stringify(ragHistory, null, 2)], { type: 'application/json' }))
+                      a.download = `rag-history-${Date.now()}.json`
+                      a.click()
+                      URL.revokeObjectURL(a.href)
+                    }}
+                    className="btn-ghost text-xs gap-1"
+                    title="Export all history as JSON"
+                  >
+                    <Download className="w-3 h-3" /> Export all
+                  </button>
+                )}
                 <button onClick={clearRAGHistory} className="btn-ghost text-xs gap-1 text-red-500">
                   <Trash2 className="w-3 h-3" /> Clear
                 </button>
               </div>
               {ragHistory.length === 0 && <p className="text-gray-600 text-sm">No history yet</p>}
               {ragHistory.map((entry) => (
-                <button key={entry.id} onClick={() => { setQuery(entry.query); setAnswer(entry.answer); setSources(entry.sources); setActiveTab('answer') }}
-                  className="card p-3 w-full text-left hover:bg-surface-200 transition-colors space-y-1">
-                  <div className="flex items-center gap-2 text-gray-500 text-xs">
-                    <Clock className="w-3 h-3" />
-                    {formatDate(entry.timestamp)} · {entry.collectionName}
+                <div key={entry.id} className="card p-3 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => { setQuery(entry.query); setAnswer(entry.answer); setSources(entry.sources); setActiveTab('answer') }}
+                      className="flex items-center gap-2 text-gray-500 text-xs hover:text-gray-300 flex-1 min-w-0"
+                    >
+                      <Clock className="w-3 h-3 flex-shrink-0" />
+                      <span className="truncate">{formatDate(entry.timestamp)} · {entry.collectionName}</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const a = document.createElement('a')
+                        a.href = URL.createObjectURL(new Blob([JSON.stringify(entry, null, 2)], { type: 'application/json' }))
+                        a.download = `rag-${entry.collectionName}-${entry.id}.json`
+                        a.click()
+                        URL.revokeObjectURL(a.href)
+                      }}
+                      className="btn-ghost p-1 flex-shrink-0"
+                      title="Export this entry as JSON"
+                    >
+                      <Download className="w-3 h-3" />
+                    </button>
                   </div>
-                  <p className="text-sm text-gray-200 font-medium">{truncate(entry.query, 80)}</p>
-                  <p className="text-xs text-gray-500">{truncate(entry.answer, 100)}</p>
-                </button>
+                  <button
+                    onClick={() => { setQuery(entry.query); setAnswer(entry.answer); setSources(entry.sources); setActiveTab('answer') }}
+                    className="w-full text-left"
+                  >
+                    <p className="text-sm text-gray-200 font-medium">{truncate(entry.query, 80)}</p>
+                    <p className="text-xs text-gray-500">{truncate(entry.answer, 100)}</p>
+                  </button>
+                </div>
               ))}
             </div>
           )}

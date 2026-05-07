@@ -1,14 +1,42 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Loader2, AlertCircle, Sliders, ChevronDown, ChevronUp, Download, Boxes } from 'lucide-react'
+import { Search, Loader2, AlertCircle, Sliders, ChevronDown, ChevronUp, Download, Boxes, Filter, Plus, X } from 'lucide-react'
 import { useCollections } from '@/hooks/useCollections'
 import { useAppStore } from '@/store/appStore'
 import { useConnectionStore } from '@/store/connectionStore'
 import { getAdapter } from '@/lib/adapters'
 import { embedSingle } from '@/lib/embedding/client'
-import type { SearchResult, SearchType, EmbeddingConfig } from '@/types/domain'
+import type { SearchResult, SearchType, EmbeddingConfig, FilterCondition } from '@/types/domain'
 import { cn } from '@/lib/utils/cn'
 import { truncate } from '@/lib/utils/format'
+
+const OPERATORS: FilterCondition['operator'][] = [
+  'Equal', 'NotEqual', 'Like', 'GreaterThan', 'GreaterThanEqual', 'LessThan', 'LessThanEqual', 'IsNull',
+]
+
+function applyFilters(results: SearchResult[], filters: FilterCondition[]): SearchResult[] {
+  if (filters.length === 0) return results
+  return results.filter((r) =>
+    filters.every((f) => {
+      if (!f.path) return true
+      const val = r.properties[f.path]
+      switch (f.operator) {
+        case 'Equal': return String(val ?? '') === String(f.value)
+        case 'NotEqual': return String(val ?? '') !== String(f.value)
+        case 'Like': return String(val ?? '').toLowerCase().includes(String(f.value).toLowerCase())
+        case 'GreaterThan': return Number(val) > Number(f.value)
+        case 'GreaterThanEqual': return Number(val) >= Number(f.value)
+        case 'LessThan': return Number(val) < Number(f.value)
+        case 'LessThanEqual': return Number(val) <= Number(f.value)
+        case 'IsNull': return val == null
+      }
+    })
+  )
+}
+
+function newFilter(): FilterCondition {
+  return { path: '', operator: 'Equal', valueType: 'valueText', value: '' }
+}
 
 function EmbeddingConfigPanel({ value, onChange }: { value: EmbeddingConfig; onChange: (v: EmbeddingConfig) => void }) {
   return (
@@ -107,6 +135,8 @@ export function SearchPage() {
   const [error, setError] = useState<string | null>(null)
   const [showEmbedConfig, setShowEmbedConfig] = useState(searchType === 'semantic')
   const [duration, setDuration] = useState<number | null>(null)
+  const [filters, setFilters] = useState<FilterCondition[]>([])
+  const [showFilters, setShowFilters] = useState(false)
 
   const selectedCollection = collections?.find((c) => c.name === className)
   const properties = selectedCollection?.properties?.map((p) => p.name) ?? ['content', '_additional']
@@ -173,7 +203,7 @@ export function SearchPage() {
         try { vector = await embedSingle(query, embeddingConfig) } catch {}
         res = await adapter.hybridSearch(className, query, vector, alpha, topK, properties)
       }
-      setResults(res)
+      setResults(applyFilters(res, filters))
       setDuration(Date.now() - t0)
     } catch (err) {
       setError(translateError(err))
@@ -271,6 +301,74 @@ export function SearchPage() {
         {showEmbedConfig && (searchType === 'semantic' || searchType === 'hybrid') && (
           <EmbeddingConfigPanel value={embeddingConfig} onChange={setEmbeddingConfig} />
         )}
+
+        {/* Filters */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowFilters((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            <Filter className="w-3.5 h-3.5" />
+            Filters
+            {filters.length > 0 && (
+              <span className="badge bg-accent-muted text-accent text-[10px]">{filters.length} active</span>
+            )}
+            <span className="text-gray-700 ml-1">{showFilters ? '▲' : '▼'}</span>
+          </button>
+          {showFilters && (
+            <div className="mt-2 space-y-2 p-3 bg-surface-200 rounded-lg border border-border">
+              {filters.length === 0 && (
+                <p className="text-xs text-gray-600">No filters. Add one to narrow results by metadata.</p>
+              )}
+              {filters.map((f, idx) => (
+                <div key={idx} className="flex gap-1.5 items-center">
+                  <select
+                    className="input py-1 text-xs flex-1"
+                    value={f.path}
+                    onChange={(e) => setFilters((fs) => fs.map((x, i) => i === idx ? { ...x, path: e.target.value } : x))}
+                  >
+                    <option value="">Field…</option>
+                    {properties.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <select
+                    className="input py-1 text-xs w-32"
+                    value={f.operator}
+                    onChange={(e) => setFilters((fs) => fs.map((x, i) => i === idx ? { ...x, operator: e.target.value as FilterCondition['operator'] } : x))}
+                  >
+                    {OPERATORS.map((op) => <option key={op} value={op}>{op}</option>)}
+                  </select>
+                  <input
+                    className="input py-1 text-xs flex-1"
+                    value={f.operator === 'IsNull' ? '' : String(f.value)}
+                    placeholder={f.operator === 'IsNull' ? '—' : 'value'}
+                    disabled={f.operator === 'IsNull'}
+                    onChange={(e) => setFilters((fs) => fs.map((x, i) => i === idx ? { ...x, value: e.target.value } : x))}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setFilters((fs) => fs.filter((_, i) => i !== idx))}
+                    className="btn-ghost p-1 text-gray-600 hover:text-red-400"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setFilters((fs) => [...fs, newFilter()])}
+                  className="btn-ghost text-xs gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add filter
+                </button>
+                {filters.length > 0 && (
+                  <p className="text-[10px] text-gray-600">Applied client-side to top-{topK} results</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </form>
 
       {error && (
