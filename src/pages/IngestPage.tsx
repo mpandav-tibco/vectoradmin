@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, X, Loader2, CheckCircle, AlertCircle, ChevronDown, ChevronUp, History, Trash2, TriangleAlert } from 'lucide-react'
+import { Upload, FileText, X, Loader2, CheckCircle, AlertCircle, ChevronDown, ChevronUp, History, Trash2, TriangleAlert, RotateCcw } from 'lucide-react'
 import { useCollections } from '@/hooks/useCollections'
 import { useBatchUpsert } from '@/hooks/useObjects'
 import { useAppStore } from '@/store/appStore'
@@ -151,6 +151,15 @@ export function IngestPage() {
       setProgress({ step: 'error', current: 0, total: 0, error: msg })
       updateIngestJob(jobId, { status: 'error', errorMessage: msg })
     }
+  }
+
+  const retryJob = (jobClassName: string) => {
+    setClassName(jobClassName)
+    setFiles([])
+    setPastedText('')
+    setProgress({ step: 'idle', current: 0, total: 0 })
+    setResult(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const steps: Array<{ key: Step; label: string }> = [
@@ -368,6 +377,16 @@ export function IngestPage() {
                       <p className="text-[10px] text-gray-600 mt-0.5 truncate">{r.fileNames.join(', ')}</p>
                     )}
                   </div>
+                  {(r.status === 'error' || r.status === 'interrupted') && (
+                    <button
+                      type="button"
+                      onClick={() => retryJob(r.className)}
+                      title="Pre-fill form with this job's collection — drop files again to retry"
+                      className="btn-ghost text-xs gap-1 flex-shrink-0 text-gray-500"
+                    >
+                      <RotateCcw className="w-3 h-3" /> Retry
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

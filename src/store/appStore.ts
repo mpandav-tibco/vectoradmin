@@ -4,7 +4,21 @@ import type { EmbeddingConfig, LLMConfig, RAGHistoryEntry, SearchType, ChunkConf
 
 export interface VizHighlight { collectionName: string; ids: string[] }
 
+export interface SearchLogEntry {
+  id: string
+  timestamp: number
+  collectionName: string
+  query: string
+  searchType: string
+  resultCount: number
+  topScore?: number
+  durationMs: number
+}
+
 interface AppStore {
+  theme: 'dark' | 'light'
+  setTheme: (theme: 'dark' | 'light') => void
+
   selectedCollection: string | null
   setSelectedCollection: (name: string | null) => void
 
@@ -35,6 +49,10 @@ interface AppStore {
   startIngestJob: (record: Omit<IngestRecord, 'chunks' | 'succeeded' | 'failed'>) => void
   updateIngestJob: (id: string, patch: Partial<IngestRecord>) => void
   clearIngestHistory: () => void
+
+  searchLog: SearchLogEntry[]
+  addSearchLog: (entry: Omit<SearchLogEntry, 'id'>) => void
+  clearSearchLog: () => void
 }
 
 const defaultEmbedding: EmbeddingConfig = {
@@ -54,6 +72,9 @@ const defaultLLM: LLMConfig = {
 export const useAppStore = create<AppStore>()(
   persist(
     (set) => ({
+      theme: 'dark',
+      setTheme: (theme) => set({ theme }),
+
       selectedCollection: null,
       setSelectedCollection: (name) => set({ selectedCollection: name }),
 
@@ -94,11 +115,22 @@ export const useAppStore = create<AppStore>()(
           ingestHistory: s.ingestHistory.map((r) => (r.id === id ? { ...r, ...patch } : r)),
         })),
       clearIngestHistory: () => set({ ingestHistory: [] }),
+
+      searchLog: [],
+      addSearchLog: (entry) =>
+        set((s) => ({
+          searchLog: [
+            { ...entry, id: crypto.randomUUID() },
+            ...s.searchLog,
+          ].slice(0, 200),
+        })),
+      clearSearchLog: () => set({ searchLog: [] }),
     }),
     {
       name: 'vector-admin-app',
       version: 1,
       partialize: (state) => ({
+        theme:           state.theme,
         searchType:      state.searchType,
         alpha:           state.alpha,
         topK:            state.topK,
@@ -107,6 +139,7 @@ export const useAppStore = create<AppStore>()(
         chunkConfig:     state.chunkConfig,
         ragHistory:      state.ragHistory,
         ingestHistory:   state.ingestHistory,
+        // searchLog intentionally excluded — session only
       }),
     }
   )

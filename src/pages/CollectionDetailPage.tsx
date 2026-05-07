@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/appStore'
-import { ArrowLeft, Plus, Trash2, RefreshCw, Eye, ChevronLeft, ChevronRight, Loader2, Copy } from 'lucide-react'
+import type { SearchLogEntry } from '@/store/appStore'
+import { ArrowLeft, Plus, Trash2, RefreshCw, Eye, ChevronLeft, ChevronRight, Loader2, Copy, Search, CheckSquare, Square, X, BarChart2 } from 'lucide-react'
 import { useCollection, useObjectCount } from '@/hooks/useCollections'
 import { useObjects, useCreateObject, useDeleteObject } from '@/hooks/useObjects'
-import { formatNumber, formatDate, truncate } from '@/lib/utils/format'
+import { formatNumber, truncate, formatDate, formatDuration } from '@/lib/utils/format'
 import { cn } from '@/lib/utils/cn'
 import type { DBObject } from '@/lib/adapters'
 import { VectorViz } from '@/components/VectorViz'
+import { getAdapter } from '@/lib/adapters'
+import { useConnectionStore } from '@/store/connectionStore'
 
 function VectorPreview({ vector }: { vector: number[] }) {
   const preview = vector.slice(0, 20)
@@ -155,14 +158,56 @@ export function CollectionDetailPage() {
   const { data: objectsData, isLoading: objLoading, refetch } = useObjects(name, PAGE_SIZE, page * PAGE_SIZE)
   const createObject = useCreateObject()
   const deleteObject = useDeleteObject()
+  const connectionConfig = useConnectionStore((s) => s.config)
 
   const [selectedObj, setSelectedObj] = useState<DBObject | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [newProps, setNewProps] = useState('{\n  "content": ""\n}')
-  const { vizHighlight } = useAppStore()
-  const [activeTab, setActiveTab] = useState<'schema' | 'objects' | 'visualize'>(
+  const { vizHighlight, searchLog, clearSearchLog } = useAppStore()
+  const [activeTab, setActiveTab] = useState<'schema' | 'objects' | 'visualize' | 'analytics'>(
     () => vizHighlight?.collectionName === name ? 'visualize' : 'objects'
   )
+
+  const collectionLog = useMemo(
+    () => searchLog.filter((e: SearchLogEntry) => e.collectionName === name),
+    [searchLog, name]
+  )
+
+  // Filter + multi-select state
+  const [filterText, setFilterText] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
+
+  const filteredObjects = useMemo(() => {
+    const objs = objectsData?.objects ?? []
+    if (!filterText.trim()) return objs
+    const q = filterText.trim().toLowerCase()
+    return objs.filter((obj) =>
+      obj.id.toLowerCase().includes(q) ||
+      JSON.stringify(obj.properties).toLowerCase().includes(q)
+    )
+  }, [objectsData?.objects, filterText])
+
+  const allFilteredIds = filteredObjects.map((o) => o.id)
+  const allSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedIds.has(id))
+  const someSelected = selectedIds.size > 0
+
+  const toggleAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (allSelected) return new Set()
+      return new Set(allFilteredIds)
+    })
+  }, [allSelected, allFilteredIds])
+
+  const toggleOne = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -184,6 +229,29 @@ export function CollectionDetailPage() {
     refetch()
   }
 
+  const handleBulkDelete = async () => {
+    const ids = [...selectedIds]
+    if (!confirm(`Delete ${ids.length} selected object${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return
+    setBulkDeleting(true)
+    setBulkProgress({ done: 0, total: ids.length })
+    const adapter = connectionConfig ? getAdapter(connectionConfig) : null
+    let done = 0
+    for (const id of ids) {
+      try {
+        if (adapter) await adapter.deleteObject(name, id)
+        else await deleteObject.mutateAsync({ className: name, id })
+      } catch {
+        // continue best-effort
+      }
+      done++
+      setBulkProgress({ done, total: ids.length })
+    }
+    setSelectedIds(new Set())
+    setBulkDeleting(false)
+    setBulkProgress(null)
+    refetch()
+  }
+
   const totalPages = Math.ceil((count ?? 0) / PAGE_SIZE)
 
   return (
@@ -201,7 +269,7 @@ export function CollectionDetailPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
-        {(['objects', 'schema', 'visualize'] as const).map((t) => (
+        {(['objects', 'schema', 'visualize', 'analytics'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setActiveTab(t)}
@@ -209,7 +277,9 @@ export function CollectionDetailPage() {
               ? 'border-accent text-accent font-medium'
               : 'border-transparent text-gray-400 hover:text-gray-100')}
           >
-            {t}
+            {t === 'analytics'
+              ? <>Analytics{collectionLog.length > 0 && <span className="ml-1.5 text-[10px] bg-accent-muted text-accent rounded-full px-1.5 py-0.5">{collectionLog.length}</span>}</>
+              : t}
           </button>
         ))}
       </div>
@@ -250,69 +320,217 @@ export function CollectionDetailPage() {
       {/* Objects tab */}
       {activeTab === 'objects' && (
         <>
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-500">Page {page + 1} of {totalPages || 1}</p>
-            <div className="flex gap-2">
-              <button onClick={() => refetch()} title="Reload objects from Weaviate" className="btn-ghost text-xs"><RefreshCw className="w-3.5 h-3.5" /></button>
-              <button onClick={() => setShowCreate(true)} title="Add a new object to this collection" className="btn-primary text-xs">
-                <Plus className="w-3.5 h-3.5" /> New Object
-              </button>
+          <div className="flex items-center gap-2">
+            {/* Filter input */}
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+              <input
+                type="text"
+                className="input pl-8 pr-8 text-xs h-8 w-full"
+                placeholder="Filter by id or property value…"
+                value={filterText}
+                onChange={(e) => { setFilterText(e.target.value); setSelectedIds(new Set()) }}
+                title="Filter visible rows by id or property content (case-insensitive)"
+              />
+              {filterText && (
+                <button
+                  onClick={() => { setFilterText(''); setSelectedIds(new Set()) }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                  title="Clear filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
             </div>
+
+            {/* Bulk delete button */}
+            {someSelected && (
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                title={`Delete ${selectedIds.size} selected object${selectedIds.size === 1 ? '' : 's'}`}
+                className="btn-ghost text-xs text-red-500 border border-red-900/50 hover:bg-red-900/20 flex-shrink-0"
+              >
+                {bulkDeleting && bulkProgress
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {bulkProgress.done}/{bulkProgress.total}</>
+                  : <><Trash2 className="w-3.5 h-3.5" /> Delete {selectedIds.size}</>
+                }
+              </button>
+            )}
+
+            <p className="text-xs text-gray-500 flex-shrink-0">
+              {filterText
+                ? `${filteredObjects.length} of ${objectsData?.objects?.length ?? 0} shown`
+                : `Page ${page + 1} of ${totalPages || 1}`
+              }
+            </p>
+            <button onClick={() => refetch()} title="Reload objects" className="btn-ghost text-xs flex-shrink-0"><RefreshCw className="w-3.5 h-3.5" /></button>
+            <button onClick={() => setShowCreate(true)} title="Add a new object to this collection" className="btn-primary text-xs flex-shrink-0">
+              <Plus className="w-3.5 h-3.5" /> New Object
+            </button>
           </div>
 
           <div className="card overflow-hidden">
             {objLoading && <div className="py-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-gray-500" /></div>}
-            {!objLoading && !objectsData?.objects.length && (
-              <p className="py-8 text-center text-sm text-gray-500">No objects in this collection</p>
+            {!objLoading && filteredObjects.length === 0 && (
+              <p className="py-8 text-center text-sm text-gray-500">
+                {filterText ? 'No objects match the filter' : 'No objects in this collection'}
+              </p>
             )}
-            {!objLoading && (objectsData?.objects?.length ?? 0) > 0 && (
+            {!objLoading && filteredObjects.length > 0 && (
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
+                    <th className="px-3 py-3 w-8">
+                      <button
+                        onClick={toggleAll}
+                        title={allSelected ? 'Deselect all visible' : 'Select all visible'}
+                        className="text-gray-500 hover:text-gray-200 transition-colors"
+                      >
+                        {allSelected
+                          ? <CheckSquare className="w-4 h-4 text-accent" />
+                          : someSelected
+                            ? <CheckSquare className="w-4 h-4 text-gray-600" />
+                            : <Square className="w-4 h-4" />
+                        }
+                      </button>
+                    </th>
                     <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">ID</th>
                     <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">Properties</th>
                     <th className="px-4 py-3 text-xs text-gray-500 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {objectsData?.objects?.map((obj) => (
-                    <tr key={obj.id} className="hover:bg-surface-200 group">
-                      <td className="px-4 py-2 font-mono text-xs text-gray-500 w-40" title={obj.id}>{truncate(obj.id, 12)}…</td>
-                      <td className="px-4 py-2 text-gray-300 text-xs">
-                        {truncate(JSON.stringify(obj.properties), 80)}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => setSelectedObj(obj as any)} title="View full object details" className="btn-ghost p-1">
-                            <Eye className="w-3.5 h-3.5" />
+                  {filteredObjects.map((obj) => {
+                    const isSelected = selectedIds.has(obj.id)
+                    return (
+                      <tr key={obj.id} className={cn('hover:bg-surface-200 group', isSelected && 'bg-accent/5')}>
+                        <td className="px-3 py-2">
+                          <button
+                            onClick={() => toggleOne(obj.id)}
+                            title={isSelected ? 'Deselect' : 'Select'}
+                            className="text-gray-500 hover:text-gray-200 transition-colors"
+                          >
+                            {isSelected
+                              ? <CheckSquare className="w-4 h-4 text-accent" />
+                              : <Square className="w-4 h-4" />
+                            }
                           </button>
-                          <button onClick={() => handleDelete(obj.id)} title="Delete this object permanently" className="btn-ghost p-1 text-red-500">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-2 font-mono text-xs text-gray-500 w-40" title={obj.id}>{truncate(obj.id, 12)}…</td>
+                        <td className="px-4 py-2 text-gray-300 text-xs">
+                          {truncate(JSON.stringify(obj.properties), 80)}
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => setSelectedObj(obj as any)} title="View full object details" className="btn-ghost p-1">
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleDelete(obj.id)} title="Delete this object permanently" className="btn-ghost p-1 text-red-500">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}
           </div>
 
           {/* Pagination */}
-          <div className="flex items-center justify-between">
-            <button disabled={page === 0} onClick={() => setPage((p) => p - 1)} title="Go to previous page" className="btn-secondary text-xs disabled:opacity-30">
-              <ChevronLeft className="w-3.5 h-3.5" /> Previous
-            </button>
-            <button disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)} title="Go to next page" className="btn-secondary text-xs disabled:opacity-30">
-              Next <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          {!filterText && (
+            <div className="flex items-center justify-between">
+              <button disabled={page === 0} onClick={() => setPage((p) => p - 1)} title="Go to previous page" className="btn-secondary text-xs disabled:opacity-30">
+                <ChevronLeft className="w-3.5 h-3.5" /> Previous
+              </button>
+              <button disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)} title="Go to next page" className="btn-secondary text-xs disabled:opacity-30">
+                Next <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </>
       )}
 
       {/* Visualize tab */}
       {activeTab === 'visualize' && (
         <VectorViz collectionName={name} />
+      )}
+
+      {/* Analytics tab */}
+      {activeTab === 'analytics' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BarChart2 className="w-4 h-4 text-gray-500" />
+              <p className="text-sm text-gray-300 font-medium">Search query log</p>
+              <span className="text-xs text-gray-500">— session only, not persisted</span>
+            </div>
+            {collectionLog.length > 0 && (
+              <button onClick={clearSearchLog} className="text-xs text-gray-600 hover:text-red-400 flex items-center gap-1 transition-colors">
+                <Trash2 className="w-3 h-3" /> Clear all
+              </button>
+            )}
+          </div>
+
+          {collectionLog.length === 0 ? (
+            <div className="card p-6 text-center text-sm text-gray-500">
+              No queries run against <span className="font-mono text-gray-400">{name}</span> this session.
+              <p className="text-xs text-gray-600 mt-1">Run a search from the Search page and results will appear here.</p>
+            </div>
+          ) : (
+            <div className="card overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-surface-200">
+                    <th className="text-left px-4 py-2 text-gray-500 font-medium">Query</th>
+                    <th className="text-left px-4 py-2 text-gray-500 font-medium">Type</th>
+                    <th className="text-left px-4 py-2 text-gray-500 font-medium text-right">Results</th>
+                    <th className="text-left px-4 py-2 text-gray-500 font-medium text-right">Top score</th>
+                    <th className="text-left px-4 py-2 text-gray-500 font-medium text-right">Duration</th>
+                    <th className="text-left px-4 py-2 text-gray-500 font-medium text-right">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {collectionLog.map((entry: SearchLogEntry) => (
+                    <tr key={entry.id} className="hover:bg-surface-200">
+                      <td className="px-4 py-2 text-gray-200 max-w-[200px]" title={entry.query}>
+                        {truncate(entry.query, 40)}
+                      </td>
+                      <td className="px-4 py-2">
+                        <span className="badge bg-surface-300 text-gray-400">{entry.searchType}</span>
+                      </td>
+                      <td className="px-4 py-2 text-gray-400 text-right tabular-nums">{entry.resultCount}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        {entry.topScore !== undefined
+                          ? <span className="text-accent">{entry.topScore.toFixed(4)}</span>
+                          : <span className="text-gray-600">—</span>}
+                      </td>
+                      <td className="px-4 py-2 text-gray-400 text-right tabular-nums">{formatDuration(entry.durationMs)}</td>
+                      <td className="px-4 py-2 text-gray-600 text-right">{formatDate(entry.timestamp)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {collectionLog.length > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                ['Total queries', collectionLog.length],
+                ['Avg results', Math.round(collectionLog.reduce((s, e) => s + e.resultCount, 0) / collectionLog.length)],
+                ['Avg duration', formatDuration(Math.round(collectionLog.reduce((s, e) => s + e.durationMs, 0) / collectionLog.length))],
+              ].map(([label, value]) => (
+                <div key={label as string} className="card p-3 text-center">
+                  <p className="text-lg font-bold text-gray-100">{value}</p>
+                  <p className="text-xs text-gray-500">{label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Object detail modal */}

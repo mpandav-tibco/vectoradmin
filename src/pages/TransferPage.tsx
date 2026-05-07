@@ -1,11 +1,12 @@
-import { useState, useCallback } from 'react'
-import { ArrowRightLeft, Loader2, AlertCircle, CheckCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
-import { useCollections } from '@/hooks/useCollections'
+import { useState, useCallback, useEffect } from 'react'
+import { ArrowRightLeft, Loader2, AlertCircle, CheckCircle, RefreshCw, ChevronDown, ChevronUp, GitCompare } from 'lucide-react'
+import { useCollections, useCollection } from '@/hooks/useCollections'
 import { useConnectionStore } from '@/store/connectionStore'
 import { getAdapter } from '@/lib/adapters'
 import { formatNumber } from '@/lib/utils/format'
 import { cn } from '@/lib/utils/cn'
 import type { ConnectionConfig } from '@/types/domain'
+import type { DBProperty } from '@/lib/adapters'
 
 const DB_LABELS: Record<string, string> = {
   weaviate: 'Weaviate', qdrant: 'Qdrant', chroma: 'Chroma',
@@ -38,6 +39,21 @@ export function TransferPage() {
 
   const targetConfig: ConnectionConfig =
     targetMode === 'same' ? config! : savedConnections[savedIdx] ?? config!
+
+  // Schema diff
+  const { data: sourceCollectionData } = useCollection(sourceCollection)
+  const [targetProps, setTargetProps] = useState<DBProperty[] | null>(null)
+  const [showDiff, setShowDiff] = useState(false)
+  const [diffLoading, setDiffLoading] = useState(false)
+
+  useEffect(() => {
+    if (!targetCollection) { setTargetProps(null); return }
+    setDiffLoading(true)
+    getAdapter(targetConfig).getCollection(targetCollection)
+      .then((col) => setTargetProps(col.properties ?? []))
+      .catch(() => setTargetProps([]))
+      .finally(() => setDiffLoading(false))
+  }, [targetCollection, targetConfig.host, targetConfig.port, targetConfig.dbType])
 
   const testTarget = async () => {
     setTestingTarget(true)
@@ -75,11 +91,35 @@ export function TransferPage() {
       const src = getAdapter(config)
       const tgt = getAdapter(targetConfig)
 
-      // Get total count
-      const count = await src.getObjectCount(sourceCollection)
+      // Fetch source schema and count in parallel
+      const [srcCol, count] = await Promise.all([
+        src.getCollection(sourceCollection),
+        src.getObjectCount(sourceCollection),
+      ])
       setTotal(count)
-      addLog(`Source: ${formatNumber(count)} objects in "${sourceCollection}"`)
+      addLog(`Source: ${formatNumber(count)} objects in "${sourceCollection}"${srcCol.vectorDimensions ? ` · ${srcCol.vectorDimensions}d` : ''}`)
       addLog(`Target: "${targetCollection}" on ${DB_LABELS[targetConfig.dbType] ?? targetConfig.dbType} ${targetConfig.host}:${targetConfig.port}`)
+
+      // Ensure target collection exists — create it from source schema if missing
+      try {
+        await tgt.getCollection(targetCollection)
+        addLog(`Target collection "${targetCollection}" already exists`)
+      } catch {
+        const dims = srcCol.vectorDimensions
+        const dist = srcCol.distance ?? 'cosine'
+        addLog(
+          dims
+            ? `Target collection "${targetCollection}" not found — creating (${dims}d, ${dist})…`
+            : `Target collection "${targetCollection}" not found — creating (dimensions unknown, defaulting to 768d)…`
+        )
+        await tgt.createCollection({
+          name: targetCollection,
+          vectorDimensions: dims,
+          distance: dist as 'cosine' | 'dot' | 'euclidean' | 'hamming',
+          properties: srcCol.properties?.map((p) => ({ name: p.name, dataType: p.dataType })),
+        })
+        addLog(`✓ Collection "${targetCollection}" created`, 'ok')
+      }
 
       let offset = 0
       let totalTransferred = 0
@@ -230,9 +270,75 @@ export function TransferPage() {
             onChange={(e) => setTargetCollection(e.target.value)}
             placeholder={sourceCollection ? `${sourceCollection}_copy` : 'collection-name'}
           />
-          <p className="text-xs text-gray-600 mt-1">Will be created if it doesn't exist (for schema-free DBs). For Weaviate, create the collection first.</p>
+          <p className="text-xs text-gray-600 mt-1">Auto-created from the source schema if it doesn't exist. For pgvector (PostgREST), the table must already exist.</p>
         </div>
       </div>
+
+      {/* Schema diff */}
+      {sourceCollection && targetCollection && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowDiff((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            <GitCompare className="w-3.5 h-3.5" />
+            Schema comparison
+            {diffLoading && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
+            <span className="text-gray-700">{showDiff ? '▲' : '▼'}</span>
+          </button>
+          {showDiff && (() => {
+            const srcProps = sourceCollectionData?.properties ?? []
+            const tgtProps = targetProps ?? []
+            const srcMap = new Map(srcProps.map((p) => [p.name, p]))
+            const tgtMap = new Map(tgtProps.map((p) => [p.name, p]))
+            const allNames = [...new Set([...srcMap.keys(), ...tgtMap.keys()])].sort()
+            return (
+              <div className="mt-2 card overflow-hidden">
+                {allNames.length === 0 ? (
+                  <p className="px-4 py-3 text-xs text-gray-500">
+                    {diffLoading ? 'Loading…' : 'No schema properties available (schema-free DB or collection not found)'}
+                  </p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-surface-200">
+                        <th className="text-left px-4 py-2 text-gray-500 font-medium">Property</th>
+                        <th className="text-left px-4 py-2 text-gray-500 font-medium">Source type</th>
+                        <th className="text-left px-4 py-2 text-gray-500 font-medium">Target type</th>
+                        <th className="text-left px-4 py-2 text-gray-500 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {allNames.map((name) => {
+                        const src = srcMap.get(name)
+                        const tgt = tgtMap.get(name)
+                        const status = src && tgt ? 'both' : src ? 'src-only' : 'tgt-only'
+                        return (
+                          <tr key={name} className={cn(
+                            'hover:bg-surface-200',
+                            status === 'src-only' && 'bg-amber-900/10',
+                            status === 'tgt-only' && 'bg-blue-900/10',
+                          )}>
+                            <td className="px-4 py-2 font-mono text-gray-200">{name}</td>
+                            <td className="px-4 py-2 text-gray-400">{src?.dataType ?? <span className="text-gray-600">—</span>}</td>
+                            <td className="px-4 py-2 text-gray-400">{tgt?.dataType ?? <span className="text-gray-600">—</span>}</td>
+                            <td className="px-4 py-2">
+                              {status === 'both' && <span className="badge bg-surface-300 text-gray-400">Both</span>}
+                              {status === 'src-only' && <span className="badge bg-amber-900/30 text-amber-400">Source only</span>}
+                              {status === 'tgt-only' && <span className="badge bg-blue-900/30 text-blue-400">Target only</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+      )}
 
       {/* Options */}
       <div>

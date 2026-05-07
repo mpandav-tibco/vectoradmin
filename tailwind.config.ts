@@ -7,16 +7,16 @@ export default {
     extend: {
       colors: {
         surface: {
-          DEFAULT: '#0f1117',
-          100: '#161b27',
-          200: '#1c2333',
-          300: '#252d3d',
+          DEFAULT: 'var(--color-surface)',
+          100: 'var(--color-surface-100)',
+          200: 'var(--color-surface-200)',
+          300: 'var(--color-surface-300)',
         },
-        border: '#2d3748',
+        border: 'var(--color-border)',
         accent: {
-          DEFAULT: '#6366f1',
-          hover: '#4f46e5',
-          muted: '#312e81',
+          DEFAULT: 'rgb(var(--color-accent) / <alpha-value>)',
+          hover: 'rgb(var(--color-accent-hover) / <alpha-value>)',
+          muted: 'rgb(var(--color-accent-muted) / <alpha-value>)',
         },
       },
       fontFamily: {

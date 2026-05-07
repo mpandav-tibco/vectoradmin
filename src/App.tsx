@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useConnectionStore } from '@/store/connectionStore'
+import { useAppStore } from '@/store/appStore'
 import { AppShell } from '@/components/layout/AppShell'
 import { ConnectPage } from '@/pages/ConnectPage'
 import { OverviewPage } from '@/pages/OverviewPage'
@@ -11,6 +13,14 @@ import { RAGPage } from '@/pages/RAGPage'
 import { TransferPage } from '@/pages/TransferPage'
 import { ConnectionsPage } from '@/pages/ConnectionsPage'
 
+function ThemeSync() {
+  const theme = useAppStore((s) => s.theme)
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', theme === 'light')
+  }, [theme])
+  return null
+}
+
 function RequireConnection({ children }: { children: React.ReactNode }) {
   const config = useConnectionStore((s) => s.config)
   if (!config) return <Navigate to="/connect" replace />
@@ -20,6 +30,7 @@ function RequireConnection({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <ThemeSync />
       <Routes>
         <Route path="/connect" element={<ConnectPage />} />
         <Route

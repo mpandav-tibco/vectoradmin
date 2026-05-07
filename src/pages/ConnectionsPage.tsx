@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   CheckCircle, AlertCircle, Loader2, Trash2, RefreshCw, Pencil, Plus,
-  ChevronDown, ChevronUp, Globe, Server, Lock, X,
+  ChevronDown, ChevronUp, Globe, Server, Lock, X, Download, Upload,
 } from 'lucide-react'
 import { useConnectionStore } from '@/store/connectionStore'
+import type { SavedConnection } from '@/store/connectionStore'
 import { getAdapter } from '@/lib/adapters'
 import { buildBaseURL } from '@/lib/weaviate/client'
 import type { ConnectionConfig, VectorDBType } from '@/types/domain'
@@ -147,16 +148,99 @@ export function ConnectionsPage() {
 
   const isPinecone = addForm.dbType === 'pinecone'
 
+  // ── export / import ────────────────────────────────────────────────────────
+  const importRef = useRef<HTMLInputElement>(null)
+  const [importMsg, setImportMsg] = useState<string | null>(null)
+
+  const exportConnections = () => {
+    const blob = new Blob([JSON.stringify(savedConnections, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'connections.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const importConnections = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string) as SavedConnection[]
+        if (!Array.isArray(parsed)) throw new Error('Expected a JSON array')
+        let added = 0
+        for (const sc of parsed) {
+          if (!sc.dbType || !sc.host) continue
+          saveConnection(sc, sc.label)
+          added++
+        }
+        setImportMsg(`Imported ${added} connection${added === 1 ? '' : 's'} (duplicates merged).`)
+        setTimeout(() => setImportMsg(null), 4000)
+      } catch (err) {
+        setImportMsg(`Import failed: ${err instanceof Error ? err.message : 'invalid file'}`)
+        setTimeout(() => setImportMsg(null), 5000)
+      }
+      if (importRef.current) importRef.current.value = ''
+    }
+    reader.readAsText(file)
+  }
+
   // ── render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-5 max-w-2xl">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-100">Saved Connections</h2>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Manage all saved connections. Add extras here for Transfer without changing your active connection.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-100">Saved Connections</h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Manage all saved connections. Add extras here for Transfer without changing your active connection.
+          </p>
+        </div>
+        <div className="flex gap-2 flex-shrink-0 mt-0.5">
+          <button
+            type="button"
+            onClick={exportConnections}
+            disabled={savedConnections.length === 0}
+            title="Download all saved connections as connections.json"
+            className="btn-ghost text-xs disabled:opacity-40"
+          >
+            <Download className="w-3.5 h-3.5" /> Export
+          </button>
+          <button
+            type="button"
+            onClick={() => importRef.current?.click()}
+            title="Import connections from a previously exported connections.json"
+            className="btn-ghost text-xs"
+          >
+            <Upload className="w-3.5 h-3.5" /> Import
+          </button>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={importConnections}
+          />
+        </div>
       </div>
+
+      {/* Import feedback */}
+      {importMsg && (
+        <div className={cn(
+          'px-3 py-2 rounded text-xs flex items-center gap-2',
+          importMsg.startsWith('Import failed')
+            ? 'bg-red-900/20 border border-red-800 text-red-400'
+            : 'bg-green-900/20 border border-green-800 text-green-400'
+        )}>
+          {importMsg.startsWith('Import failed')
+            ? <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            : <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+          }
+          {importMsg}
+        </div>
+      )}
 
       {/* Saved connection list */}
       {savedConnections.length === 0 ? (

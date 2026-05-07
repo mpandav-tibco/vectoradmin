@@ -126,7 +126,7 @@ export function SearchPage() {
   const navigate = useNavigate()
   const { data: collections } = useCollections()
   const config = useConnectionStore((s) => s.config)
-  const { searchType, setSearchType, alpha, setAlpha, topK, setTopK, embeddingConfig, setEmbeddingConfig, setVizHighlight } = useAppStore()
+  const { searchType, setSearchType, alpha, setAlpha, topK, setTopK, embeddingConfig, setEmbeddingConfig, setVizHighlight, addSearchLog } = useAppStore()
 
   const [query, setQuery] = useState('')
   const [className, setClassName] = useState('')
@@ -203,8 +203,19 @@ export function SearchPage() {
         try { vector = await embedSingle(query, embeddingConfig) } catch {}
         res = await adapter.hybridSearch(className, query, vector, alpha, topK, properties)
       }
-      setResults(applyFilters(res, filters))
-      setDuration(Date.now() - t0)
+      const filtered = applyFilters(res, filters)
+      setResults(filtered)
+      const elapsed = Date.now() - t0
+      setDuration(elapsed)
+      addSearchLog({
+        timestamp: Date.now(),
+        collectionName: className,
+        query: query.trim(),
+        searchType,
+        resultCount: filtered.length,
+        topScore: res[0]?.score ?? res[0]?.certainty,
+        durationMs: elapsed,
+      })
     } catch (err) {
       setError(translateError(err))
     } finally {
