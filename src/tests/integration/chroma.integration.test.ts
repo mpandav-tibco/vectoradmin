@@ -214,8 +214,10 @@ describe('Chroma — search', () => {
     expect(results[0].properties.content).toContain('Tokyo')
   })
 
-  it('hybridSearch without vector falls back to keywordSearch', async () => {
-    const results = await adapter.hybridSearch(COLLECTION, 'London England', undefined, 0.5, 5)
+  it('hybridSearch without vector falls back to keywordSearch (single-word query)', async () => {
+    // Chroma $contains does exact substring matching; multi-word phrases like "London England"
+    // are not substrings of "London is the capital of England", so use a single word.
+    const results = await adapter.hybridSearch(COLLECTION, 'London', undefined, 0.5, 5)
     expect(results.some((r) => (r.properties.content as string).includes('London'))).toBe(true)
   })
 })

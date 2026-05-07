@@ -223,11 +223,11 @@ describe('QdrantAdapter.createObject', () => {
     expect(id.length).toBeGreaterThan(0)
   })
 
-  it('sends PUT /collections/:name/points with points array', async () => {
+  it('sends PUT /collections/:name/points?wait=true with points array', async () => {
     mockFetch.mockResolvedValue(ok({ result: { status: 'acknowledged' } }))
     await adapter().createObject('docs', { content: 'Text' }, [0.5])
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('/api/qdrant/collections/docs/points')
+    expect(url).toBe('/api/qdrant/collections/docs/points?wait=true')
     expect((init as RequestInit).method).toBe('PUT')
     const body = JSON.parse(init.body as string)
     expect(body.points).toHaveLength(1)
@@ -239,11 +239,11 @@ describe('QdrantAdapter.createObject', () => {
 // ── deleteObject ──────────────────────────────────────────────────────────────
 
 describe('QdrantAdapter.deleteObject', () => {
-  it('sends POST to /points/delete with id in array', async () => {
+  it('sends POST to /points/delete?wait=true with id in array', async () => {
     mockFetch.mockResolvedValue(ok({ result: { status: 'acknowledged' } }))
     await adapter().deleteObject('docs', 'my-id')
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/collections/docs/points/delete')
+    expect(url).toContain('/collections/docs/points/delete?wait=true')
     expect((init as RequestInit).method).toBe('POST')
     const body = JSON.parse(init.body as string)
     expect(body.points).toContain('my-id')

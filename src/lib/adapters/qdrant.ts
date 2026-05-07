@@ -113,7 +113,7 @@ export class QdrantAdapter implements DBAdapter {
 
   async createObject(collection: string, properties: Record<string, unknown>, vector?: number[]): Promise<string> {
     const id = crypto.randomUUID()
-    await this.req(`/collections/${collection}/points`, {
+    await this.req(`/collections/${collection}/points?wait=true`, {
       method: 'PUT',
       body: JSON.stringify({ points: [{ id, vector: vector ?? [], payload: properties }] }),
     })
@@ -121,7 +121,7 @@ export class QdrantAdapter implements DBAdapter {
   }
 
   async deleteObject(collection: string, id: string): Promise<void> {
-    await this.req(`/collections/${collection}/points/delete`, {
+    await this.req(`/collections/${collection}/points/delete?wait=true`, {
       method: 'POST',
       body: JSON.stringify({ points: [id] }),
     })
@@ -179,7 +179,7 @@ export class QdrantAdapter implements DBAdapter {
         vector: o.vector ?? [],
         payload: o.properties,
       }))
-      await this.req(`/collections/${collection}/points`, {
+      await this.req(`/collections/${collection}/points?wait=true`, {
         method: 'PUT',
         body: JSON.stringify({ points }),
       })
