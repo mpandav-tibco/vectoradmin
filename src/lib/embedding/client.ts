@@ -60,8 +60,10 @@ async function embedOllama(texts: string[], config: EmbeddingConfig): Promise<nu
       throw new Error(`Cannot reach Ollama at ${baseURL} — is it running? Start with: docker compose up -d ollama`)
     }
     if (!resp.ok) throw new Error(`Ollama embedding failed: ${resp.status}`)
-    const data = await resp.json()
-    results.push(data.embeddings?.[0] ?? data.embedding)
+    const data = await resp.json() as { embeddings?: number[][]; embedding?: number[] }
+    const vec = data.embeddings?.[0] ?? data.embedding
+    if (!Array.isArray(vec)) throw new Error(`Ollama returned no embedding for model "${config.model}" — is the model pulled?`)
+    results.push(vec)
   }
   return results
 }

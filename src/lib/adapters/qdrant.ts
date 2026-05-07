@@ -11,6 +11,15 @@ const DISTANCE_FROM_QDRANT: Record<string, string> = {
 
 type QdrantVectors = { size: number; distance: string } | Record<string, { size: number; distance: string }>
 
+// Qdrant uses cursor-based pagination (next_page_offset token), not integer offsets.
+// This module-level cache maps a logical numeric offset → Qdrant cursor token so that
+// sequential forward navigation is O(1). Keys: "<host>:<port>:<collection>:<offset>".
+const _cursorCache = new Map<string, string | number | null>()
+
+function _cacheKey(config: ConnectionConfig, collection: string, offset: number): string {
+  return `${config.host}:${config.port}:${collection}:${offset}`
+}
+
 export class QdrantAdapter implements DBAdapter {
   private baseURL: string
   private headers: Record<string, string>
@@ -96,13 +105,55 @@ export class QdrantAdapter implements DBAdapter {
     return data.result.count
   }
 
-  async listObjects(collection: string, limit: number, _offset: number): Promise<{ objects: DBObject[]; total: number }> {
-    const data = await this.req<{
-      result: { points: Array<{ id: string | number; payload?: Record<string, unknown>; vector?: number[] | null }> }
-    }>(`/collections/${collection}/points/scroll`, {
+  async listObjects(collection: string, limit: number, offset: number): Promise<{ objects: DBObject[]; total: number }> {
+    type ScrollResp = {
+      result: {
+        points: Array<{ id: string | number; payload?: Record<string, unknown>; vector?: number[] | null }>
+        next_page_offset: string | number | null
+      }
+    }
+
+    // Resolve a Qdrant cursor token for the requested logical offset.
+    // Forward page clicks reuse the cached token (O(1)); cache misses scroll from 0.
+    let cursor: string | number | null = null
+    if (offset > 0) {
+      const cached = _cursorCache.get(_cacheKey(this.config, collection, offset))
+      if (cached !== undefined) {
+        cursor = cached
+      } else {
+        let scrolled = 0
+        while (scrolled < offset) {
+          const pageSize = Math.min(limit, offset - scrolled)
+          const r = await this.req<ScrollResp>(`/collections/${collection}/points/scroll`, {
+            method: 'POST',
+            body: JSON.stringify({
+              limit: pageSize, with_payload: false, with_vector: false,
+              ...(cursor !== null ? { offset: cursor } : {}),
+            }),
+          })
+          cursor = r.result.next_page_offset ?? null
+          scrolled += r.result.points.length
+          if (cursor === null || r.result.points.length < pageSize) break
+        }
+      }
+    }
+
+    const data = await this.req<ScrollResp>(`/collections/${collection}/points/scroll`, {
       method: 'POST',
-      body: JSON.stringify({ limit, with_payload: true, with_vector: true }),
+      body: JSON.stringify({
+        limit, with_payload: true, with_vector: true,
+        ...(cursor !== null ? { offset: cursor } : {}),
+      }),
     })
+
+    // Cache the next-page cursor so the following page load is O(1)
+    if (data.result.next_page_offset != null) {
+      _cursorCache.set(
+        _cacheKey(this.config, collection, offset + data.result.points.length),
+        data.result.next_page_offset,
+      )
+    }
+
     const total = await this.getObjectCount(collection)
     return {
       objects: data.result.points.map((p) => ({

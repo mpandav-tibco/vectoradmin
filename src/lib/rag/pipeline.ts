@@ -122,12 +122,13 @@ async function callOpenAICompatible(
   }
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
-    const body = text ? JSON.parse(text).catch?.(() => {}) ?? {} : {}
+    let body: { error?: { message?: string } } = {}
+    try { if (text) body = JSON.parse(text) } catch {}
     throw new Error(body?.error?.message ?? `LLM API error: HTTP ${resp.status}`)
   }
   if (onChunk && resp.body) return streamSSE(resp.body, onChunk)
-  const data = await resp.json()
-  return data.choices[0].message.content
+  const data = await resp.json() as { choices?: Array<{ message?: { content?: string } }> }
+  return data.choices?.[0]?.message?.content ?? ''
 }
 
 async function callOllama(
