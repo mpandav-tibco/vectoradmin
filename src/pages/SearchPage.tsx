@@ -1,0 +1,228 @@
+import { useState } from 'react'
+import { Search, Loader2, AlertCircle, Sliders, ChevronDown, ChevronUp } from 'lucide-react'
+import { useCollections } from '@/hooks/useCollections'
+import { useAppStore } from '@/store/appStore'
+import { useConnectionStore } from '@/store/connectionStore'
+import { semanticSearch, bm25Search, hybridSearch } from '@/lib/weaviate/graphql'
+import { embedSingle } from '@/lib/embedding/client'
+import type { SearchResult, SearchType, EmbeddingConfig } from '@/types/domain'
+import { cn } from '@/lib/utils/cn'
+import { truncate } from '@/lib/utils/format'
+
+function EmbeddingConfigPanel({ value, onChange }: { value: EmbeddingConfig; onChange: (v: EmbeddingConfig) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 p-3 bg-surface-200 rounded-lg border border-border">
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Provider</label>
+        <select className="input text-xs" value={value.provider}
+          onChange={(e) => onChange({ ...value, provider: e.target.value as EmbeddingConfig['provider'] })}>
+          <option value="ollama">Ollama (local)</option>
+          <option value="openai">OpenAI</option>
+          <option value="cohere">Cohere</option>
+          <option value="custom">Custom (OpenAI-compat)</option>
+        </select>
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Model</label>
+        <input className="input text-xs" value={value.model} onChange={(e) => onChange({ ...value, model: e.target.value })}
+          placeholder="nomic-embed-text" />
+      </div>
+      {value.provider !== 'ollama' && (
+        <div className="col-span-2">
+          <label className="block text-xs text-gray-500 mb-1">API Key</label>
+          <input className="input text-xs font-mono" type="password" value={value.apiKey ?? ''}
+            onChange={(e) => onChange({ ...value, apiKey: e.target.value })} placeholder="sk-…" />
+        </div>
+      )}
+      {(value.provider === 'ollama' || value.provider === 'custom') && (
+        <div className="col-span-2">
+          <label className="block text-xs text-gray-500 mb-1">Base URL</label>
+          <input className="input text-xs font-mono" value={value.baseURL ?? ''}
+            onChange={(e) => onChange({ ...value, baseURL: e.target.value })}
+            placeholder="http://localhost:11434" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResultCard({ result, rank }: { result: SearchResult; rank: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const content = String(result.properties.content ?? result.properties.text ?? JSON.stringify(result.properties))
+  const score = result.score ?? result.certainty ?? 0
+
+  return (
+    <div className="card p-4 space-y-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-surface-300 text-xs text-gray-400 flex items-center justify-center flex-shrink-0">
+            {rank}
+          </span>
+          <span className="text-xs font-mono text-gray-500">{result.id.slice(0, 16)}…</span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {result.certainty !== undefined && (
+            <span className="badge bg-green-900/40 text-green-400">{(result.certainty * 100).toFixed(1)}%</span>
+          )}
+          {result.distance !== undefined && (
+            <span className="badge bg-blue-900/40 text-blue-400">d={result.distance.toFixed(4)}</span>
+          )}
+          {result.score !== undefined && result.certainty === undefined && (
+            <span className="badge bg-accent-muted text-accent">{result.score.toFixed(4)}</span>
+          )}
+          <button onClick={() => setExpanded((v) => !v)} className="btn-ghost p-1">
+            {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+      <p className="text-sm text-gray-300 leading-relaxed">
+        {expanded ? content : truncate(content, 200)}
+      </p>
+      {expanded && Object.keys(result.properties).filter((k) => k !== 'content' && k !== 'text').length > 0 && (
+        <pre className="text-xs font-mono bg-surface-200 rounded p-2 text-gray-400 overflow-x-auto">
+          {JSON.stringify(
+            Object.fromEntries(Object.entries(result.properties).filter(([k]) => k !== 'content' && k !== 'text')),
+            null, 2
+          )}
+        </pre>
+      )}
+      {expanded && result.explainScore && (
+        <p className="text-xs text-gray-500 italic">{result.explainScore}</p>
+      )}
+    </div>
+  )
+}
+
+export function SearchPage() {
+  const { data: collections } = useCollections()
+  const config = useConnectionStore((s) => s.config)
+  const { searchType, setSearchType, alpha, setAlpha, topK, setTopK, embeddingConfig, setEmbeddingConfig } = useAppStore()
+
+  const [query, setQuery] = useState('')
+  const [className, setClassName] = useState('')
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showEmbedConfig, setShowEmbedConfig] = useState(false)
+  const [duration, setDuration] = useState<number | null>(null)
+
+  const selectedCollection = collections?.find((c) => c.class === className)
+  const properties = selectedCollection?.properties?.map((p) => p.name) ?? ['content', '_additional']
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!query.trim() || !className) return
+    setLoading(true)
+    setError(null)
+    const t0 = Date.now()
+    try {
+      const props = [...properties, '_additional']
+      let res: SearchResult[] = []
+      if (searchType === 'semantic') {
+        res = await semanticSearch({ className, concepts: [query], limit: topK, properties, config })
+      } else if (searchType === 'bm25') {
+        res = await bm25Search({ className, query, limit: topK, properties, config })
+      } else {
+        let vector: number[] | undefined
+        try { vector = await embedSingle(query, embeddingConfig) } catch {}
+        res = await hybridSearch({ className, query, vector, alpha, limit: topK, properties, config })
+      }
+      setResults(res)
+      setDuration(Date.now() - t0)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const TYPES: { type: SearchType; label: string }[] = [
+    { type: 'semantic', label: 'Semantic' },
+    { type: 'bm25', label: 'BM25' },
+    { type: 'hybrid', label: 'Hybrid' },
+  ]
+
+  return (
+    <div className="space-y-4 max-w-3xl">
+      <h2 className="text-lg font-semibold text-gray-100">Search</h2>
+
+      <form onSubmit={handleSearch} className="space-y-3">
+        {/* Collection + search type */}
+        <div className="flex gap-3">
+          <select className="input flex-1" value={className} onChange={(e) => setClassName(e.target.value)} required>
+            <option value="">Select collection…</option>
+            {collections?.map((c) => <option key={c.class} value={c.class}>{c.class}</option>)}
+          </select>
+          <div className="flex rounded-md overflow-hidden border border-border">
+            {TYPES.map(({ type, label }) => (
+              <button key={type} type="button" onClick={() => setSearchType(type)}
+                className={cn('px-3 py-1.5 text-sm transition-colors', searchType === type
+                  ? 'bg-accent text-white' : 'bg-surface-200 text-gray-400 hover:text-gray-100')}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Query input */}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input className="input pl-9" value={query} onChange={(e) => setQuery(e.target.value)}
+              placeholder={searchType === 'bm25' ? 'Keyword search…' : 'Semantic query…'} />
+          </div>
+          <button type="submit" disabled={loading || !className} className="btn-primary px-5">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
+          </button>
+        </div>
+
+        {/* Advanced controls */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500">Top-K</label>
+            <input type="number" className="input w-16 text-center text-xs" min={1} max={100}
+              value={topK} onChange={(e) => setTopK(Number(e.target.value))} />
+          </div>
+          {searchType === 'hybrid' && (
+            <div className="flex items-center gap-2 flex-1">
+              <span className="text-xs text-gray-500">BM25</span>
+              <input type="range" min={0} max={1} step={0.05} value={alpha}
+                onChange={(e) => setAlpha(Number(e.target.value))} className="flex-1 accent-indigo-500" />
+              <span className="text-xs text-gray-500">Vector</span>
+              <span className="text-xs font-mono text-gray-400 w-8">α={alpha.toFixed(2)}</span>
+            </div>
+          )}
+          {(searchType === 'semantic' || searchType === 'hybrid') && (
+            <button type="button" onClick={() => setShowEmbedConfig((v) => !v)} className="btn-ghost text-xs gap-1 ml-auto">
+              <Sliders className="w-3.5 h-3.5" /> Embedding
+            </button>
+          )}
+        </div>
+
+        {showEmbedConfig && (searchType === 'semantic' || searchType === 'hybrid') && (
+          <EmbeddingConfigPanel value={embeddingConfig} onChange={setEmbeddingConfig} />
+        )}
+      </form>
+
+      {error && (
+        <div className="flex items-center gap-2 p-3 bg-red-900/20 border border-red-800 rounded text-sm text-red-400">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-400">{results.length} results {duration !== null && `in ${duration}ms`}</p>
+            <button onClick={() => setResults([])} className="btn-ghost text-xs">Clear</button>
+          </div>
+          {results.map((r, i) => <ResultCard key={r.id} result={r} rank={i + 1} />)}
+        </div>
+      )}
+
+      {!loading && !error && results.length === 0 && query && (
+        <p className="text-center text-sm text-gray-500 py-8">No results found</p>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,67 @@
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+import type { EmbeddingConfig, LLMConfig, RAGHistoryEntry, SearchType } from '@/types/domain'
+
+interface AppStore {
+  selectedCollection: string | null
+  setSelectedCollection: (name: string | null) => void
+
+  searchType: SearchType
+  setSearchType: (type: SearchType) => void
+  alpha: number
+  setAlpha: (v: number) => void
+  topK: number
+  setTopK: (v: number) => void
+
+  embeddingConfig: EmbeddingConfig
+  setEmbeddingConfig: (config: EmbeddingConfig) => void
+
+  llmConfig: LLMConfig
+  setLLMConfig: (config: LLMConfig) => void
+
+  ragHistory: RAGHistoryEntry[]
+  addRAGHistory: (entry: RAGHistoryEntry) => void
+  clearRAGHistory: () => void
+}
+
+const defaultEmbedding: EmbeddingConfig = {
+  provider: 'ollama',
+  baseURL: '',
+  model: 'nomic-embed-text',
+}
+
+const defaultLLM: LLMConfig = {
+  provider: 'ollama',
+  baseURL: '',
+  model: 'llama3.2:3b',
+  temperature: 0.7,
+  maxTokens: 1024,
+}
+
+export const useAppStore = create<AppStore>()(
+  persist(
+    (set) => ({
+      selectedCollection: null,
+      setSelectedCollection: (name) => set({ selectedCollection: name }),
+
+      searchType: 'hybrid',
+      setSearchType: (type) => set({ searchType: type }),
+      alpha: 0.5,
+      setAlpha: (v) => set({ alpha: v }),
+      topK: 10,
+      setTopK: (v) => set({ topK: v }),
+
+      embeddingConfig: defaultEmbedding,
+      setEmbeddingConfig: (config) => set({ embeddingConfig: config }),
+
+      llmConfig: defaultLLM,
+      setLLMConfig: (config) => set({ llmConfig: config }),
+
+      ragHistory: [],
+      addRAGHistory: (entry) =>
+        set((s) => ({ ragHistory: [entry, ...s.ragHistory].slice(0, 20) })),
+      clearRAGHistory: () => set({ ragHistory: [] }),
+    }),
+    { name: 'vector-admin-app' }
+  )
+)

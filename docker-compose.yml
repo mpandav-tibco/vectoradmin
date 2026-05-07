@@ -1,0 +1,64 @@
+services:
+
+  # ── Vector Admin UI ──────────────────────────────────────────────────────────
+  ui:
+    build: .
+    container_name: vector-admin-ui
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      weaviate:
+        condition: service_healthy
+    networks:
+      - vector-net
+
+  # ── Weaviate ──────────────────────────────────────────────────────────────────
+  weaviate:
+    image: semitechnologies/weaviate:1.25.4
+    container_name: weaviate-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: "25"
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      DEFAULT_VECTORIZER_MODULE: "none"
+      ENABLE_MODULES: ""
+      CLUSTER_HOSTNAME: "node1"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - vector-net
+
+  # ── Ollama — optional, only starts with: docker compose --profile ollama up ────
+  # Pull models on first start:
+  #   docker exec ollama-dev ollama pull nomic-embed-text   # embeddings
+  #   docker exec ollama-dev ollama pull llama3.2:3b        # chat/RAG
+  ollama:
+    profiles: [ollama]
+    image: ollama/ollama:latest
+    container_name: ollama-dev
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - vector-net
+
+networks:
+  vector-net:
+    driver: bridge
+
+volumes:
+  weaviate_data:
+  ollama_data:

@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    @apply bg-surface text-gray-100 font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-gray-700 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-gray-600; }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent hover:bg-accent-hover text-white;
+  }
+  .btn-secondary {
+    @apply btn bg-surface-200 hover:bg-surface-300 text-gray-200 border border-border;
+  }
+  .btn-ghost {
+    @apply btn hover:bg-surface-200 text-gray-400 hover:text-gray-100;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 hover:bg-red-700 text-white;
+  }
+  .input {
+    @apply w-full px-3 py-2 rounded-md bg-surface-200 border border-border text-gray-100 text-sm
+           placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent
+           disabled:opacity-50;
+  }
+  .card {
+    @apply bg-surface-100 border border-border rounded-lg;
+  }
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
+  }
+}
