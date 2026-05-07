@@ -25,47 +25,115 @@ function VectorPreview({ vector }: { vector: number[] }) {
   )
 }
 
-function ObjectDetailPanel({ obj, onClose, onDelete }: {
+function ObjectDetailModal({ obj, onClose, onDelete }: {
   obj: { id: string; class: string; properties: Record<string, unknown>; vector?: number[] }
   onClose: () => void
   onDelete: (id: string) => void
 }) {
   const [copied, setCopied] = useState(false)
+  const [tab, setTab] = useState<'properties' | 'raw' | 'vector'>('properties')
+
   const copy = () => {
     navigator.clipboard.writeText(JSON.stringify(obj, null, 2))
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-end z-50">
-      <div className="w-full max-w-xl h-full bg-surface-100 border-l border-border flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <div>
-            <p className="text-sm font-medium text-gray-100">Object Detail</p>
-            <p className="text-xs font-mono text-gray-500">{obj.id}</p>
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-3xl max-h-[85vh] bg-surface-100 border border-border rounded-xl flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between px-5 py-4 border-b border-border flex-shrink-0">
+          <div className="min-w-0 flex-1 mr-4">
+            <p className="text-sm font-semibold text-gray-100">Object Detail</p>
+            <p className="text-xs font-mono text-gray-500 mt-0.5 break-all">{obj.id}</p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={copy} className="btn-ghost text-xs">{copied ? '✓' : <Copy className="w-3.5 h-3.5" />}</button>
-            <button onClick={() => onDelete(obj.id)} className="btn-ghost text-red-500 text-xs"><Trash2 className="w-3.5 h-3.5" /></button>
-            <button onClick={onClose} className="btn-ghost text-xs">×</button>
+          <div className="flex gap-2 flex-shrink-0">
+            <button
+              onClick={copy}
+              title={copied ? 'Copied!' : 'Copy full object as JSON'}
+              className="btn-ghost p-1.5 text-xs flex items-center gap-1"
+            >
+              {copied ? <span className="text-green-400 text-xs">✓ Copied</span> : <><Copy className="w-3.5 h-3.5" /><span className="text-xs">Copy</span></>}
+            </button>
+            <button
+              onClick={() => onDelete(obj.id)}
+              title="Delete this object permanently"
+              className="btn-ghost p-1.5 text-red-500 flex items-center gap-1 text-xs"
+            >
+              <Trash2 className="w-3.5 h-3.5" /><span>Delete</span>
+            </button>
+            <button
+              onClick={onClose}
+              title="Close (Esc)"
+              className="btn-ghost p-1.5 text-gray-400 hover:text-gray-100 text-lg leading-none"
+            >
+              ×
+            </button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <div>
-            <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">Properties</p>
-            <pre className="text-xs font-mono bg-surface-200 rounded-lg p-3 overflow-x-auto text-gray-300 leading-relaxed">
-              {JSON.stringify(obj.properties, null, 2)}
+
+        {/* Tabs */}
+        <div className="flex gap-0 border-b border-border flex-shrink-0">
+          {(['properties', 'raw', ...(obj.vector ? ['vector'] : [])] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t as typeof tab)}
+              title={t === 'properties' ? 'View individual property values' : t === 'raw' ? 'View complete raw JSON object' : `View embedding vector (${obj.vector?.length} dimensions)`}
+              className={cn(
+                'px-5 py-2.5 text-xs font-medium capitalize border-b-2 -mb-px transition-colors',
+                tab === t ? 'border-accent text-accent' : 'border-transparent text-gray-400 hover:text-gray-100'
+              )}
+            >
+              {t === 'vector' ? `Vector (${obj.vector?.length}d)` : t === 'raw' ? 'Raw JSON' : 'Properties'}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {tab === 'properties' && (
+            <div className="space-y-3">
+              {Object.entries(obj.properties).map(([key, val]) => (
+                <div key={key} className="bg-surface-200 rounded-lg px-4 py-3">
+                  <p className="text-xs font-medium text-gray-400 mb-1 uppercase tracking-wide">{key}</p>
+                  <p className="text-sm text-gray-200 whitespace-pre-wrap break-words leading-relaxed">
+                    {typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val ?? '—')}
+                  </p>
+                </div>
+              ))}
+              {Object.keys(obj.properties).length === 0 && (
+                <p className="text-sm text-gray-500 text-center py-6">No properties</p>
+              )}
+            </div>
+          )}
+
+          {tab === 'raw' && (
+            <pre className="text-xs font-mono text-gray-300 leading-relaxed whitespace-pre-wrap break-words bg-surface-200 rounded-lg p-4">
+              {JSON.stringify(obj, null, 2)}
             </pre>
-          </div>
-          {obj.vector && (
-            <div>
-              <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">
-                Vector <span className="normal-case">({obj.vector.length} dims)</span>
-              </p>
+          )}
+
+          {tab === 'vector' && obj.vector && (
+            <div className="space-y-4">
               <VectorPreview vector={obj.vector} />
-              <p className="text-xs font-mono text-gray-600 mt-1">
-                [{obj.vector.slice(0, 4).map((v) => v.toFixed(4)).join(', ')}, …]
-              </p>
+              <div className="bg-surface-200 rounded-lg p-4">
+                <p className="text-xs text-gray-500 mb-2">First 16 dimensions</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {obj.vector.slice(0, 16).map((v, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs font-mono bg-surface-300 rounded px-2 py-1">
+                      <span className="text-gray-500">[{i}]</span>
+                      <span className={v >= 0 ? 'text-accent' : 'text-red-400'}>{v.toFixed(6)}</span>
+                    </div>
+                  ))}
+                </div>
+                {obj.vector.length > 16 && (
+                  <p className="text-xs text-gray-600 mt-2 text-center">… and {obj.vector.length - 16} more dimensions</p>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -117,7 +185,7 @@ export function CollectionDetailPage() {
     <div className="space-y-4 max-w-5xl">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/collections')} className="btn-ghost p-1.5">
+        <button onClick={() => navigate('/collections')} title="Back to Collections" className="btn-ghost p-1.5">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div>
@@ -149,8 +217,8 @@ export function CollectionDetailPage() {
               <tr className="border-b border-border">
                 <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">Property</th>
                 <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">Type</th>
-                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">Searchable</th>
-                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">Filterable</th>
+                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium cursor-help" title="indexSearchable — property is included in BM25 keyword and hybrid search">Searchable</th>
+                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium cursor-help" title="indexFilterable — property can be used in where-clause filters">Filterable</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -179,8 +247,8 @@ export function CollectionDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs text-gray-500">Page {page + 1} of {totalPages || 1}</p>
             <div className="flex gap-2">
-              <button onClick={() => refetch()} className="btn-ghost text-xs"><RefreshCw className="w-3.5 h-3.5" /></button>
-              <button onClick={() => setShowCreate(true)} className="btn-primary text-xs">
+              <button onClick={() => refetch()} title="Reload objects from Weaviate" className="btn-ghost text-xs"><RefreshCw className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setShowCreate(true)} title="Add a new object to this collection" className="btn-primary text-xs">
                 <Plus className="w-3.5 h-3.5" /> New Object
               </button>
             </div>
@@ -203,16 +271,16 @@ export function CollectionDetailPage() {
                 <tbody className="divide-y divide-border">
                   {objectsData?.objects?.map((obj) => (
                     <tr key={obj.id} className="hover:bg-surface-200 group">
-                      <td className="px-4 py-2 font-mono text-xs text-gray-500 w-40">{truncate(obj.id, 12)}…</td>
+                      <td className="px-4 py-2 font-mono text-xs text-gray-500 w-40" title={obj.id}>{truncate(obj.id, 12)}…</td>
                       <td className="px-4 py-2 text-gray-300 text-xs">
                         {truncate(JSON.stringify(obj.properties), 80)}
                       </td>
                       <td className="px-4 py-2 text-right">
                         <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => setSelectedObj(obj as any)} className="btn-ghost p-1">
+                          <button onClick={() => setSelectedObj(obj as any)} title="View full object details" className="btn-ghost p-1">
                             <Eye className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => handleDelete(obj.id)} className="btn-ghost p-1 text-red-500">
+                          <button onClick={() => handleDelete(obj.id)} title="Delete this object permanently" className="btn-ghost p-1 text-red-500">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -226,39 +294,46 @@ export function CollectionDetailPage() {
 
           {/* Pagination */}
           <div className="flex items-center justify-between">
-            <button disabled={page === 0} onClick={() => setPage((p) => p - 1)} className="btn-secondary text-xs disabled:opacity-30">
+            <button disabled={page === 0} onClick={() => setPage((p) => p - 1)} title="Go to previous page" className="btn-secondary text-xs disabled:opacity-30">
               <ChevronLeft className="w-3.5 h-3.5" /> Previous
             </button>
-            <button disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)} className="btn-secondary text-xs disabled:opacity-30">
+            <button disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)} title="Go to next page" className="btn-secondary text-xs disabled:opacity-30">
               Next <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </>
       )}
 
-      {/* Object detail panel */}
+      {/* Object detail modal */}
       {selectedObj && (
-        <ObjectDetailPanel obj={selectedObj as any} onClose={() => setSelectedObj(null)} onDelete={handleDelete} />
+        <ObjectDetailModal obj={selectedObj as any} onClose={() => setSelectedObj(null)} onDelete={handleDelete} />
       )}
 
       {/* Create object modal */}
       {showCreate && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="card w-full max-w-lg p-6 space-y-4">
-            <h3 className="font-semibold text-gray-100">New Object</h3>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="card w-full max-w-2xl p-6 space-y-4">
+            <div>
+              <h3 className="font-semibold text-gray-100">New Object</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Enter properties as a JSON object. The vector will be generated or left empty depending on the collection's vectorizer.</p>
+            </div>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Properties (JSON)</label>
+                <label className="block text-xs text-gray-400 mb-1" title="A valid JSON object mapping property names to values">
+                  Properties (JSON)
+                </label>
                 <textarea
-                  className="input font-mono text-xs h-40 resize-none"
+                  className="input font-mono text-sm h-56 resize-y"
                   value={newProps}
                   onChange={(e) => setNewProps(e.target.value)}
                   spellCheck={false}
+                  title="Enter property values as a JSON object"
+                  placeholder={'{\n  "title": "My document",\n  "content": "Text content here"\n}'}
                 />
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary">Cancel</button>
-                <button type="submit" disabled={createObject.isPending} className="btn-primary">
+                <button type="button" onClick={() => setShowCreate(false)} title="Discard and close" className="btn-secondary">Cancel</button>
+                <button type="submit" disabled={createObject.isPending} title="Save object to Weaviate" className="btn-primary">
                   {createObject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create'}
                 </button>
               </div>
