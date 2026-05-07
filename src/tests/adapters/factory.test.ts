@@ -6,6 +6,8 @@ import { getAdapter } from '@/lib/adapters'
 import { WeaviateAdapter } from '@/lib/adapters/weaviate'
 import { QdrantAdapter } from '@/lib/adapters/qdrant'
 import { ChromaAdapter } from '@/lib/adapters/chroma'
+import { PineconeAdapter } from '@/lib/adapters/pinecone'
+import { PgvectorAdapter } from '@/lib/adapters/pgvector'
 import type { ConnectionConfig } from '@/types/domain'
 
 function cfg(dbType: ConnectionConfig['dbType']): ConnectionConfig {
@@ -25,12 +27,12 @@ describe('getAdapter', () => {
     expect(getAdapter(cfg('chroma'))).toBeInstanceOf(ChromaAdapter)
   })
 
-  it('throws for unsupported dbType "pinecone"', () => {
-    expect(() => getAdapter(cfg('pinecone'))).toThrow(/pinecone.*not yet supported/i)
+  it('returns PineconeAdapter for dbType "pinecone"', () => {
+    expect(getAdapter(cfg('pinecone'))).toBeInstanceOf(PineconeAdapter)
   })
 
-  it('throws for unsupported dbType "pgvector"', () => {
-    expect(() => getAdapter(cfg('pgvector'))).toThrow(/pgvector.*not yet supported/i)
+  it('returns PgvectorAdapter for dbType "pgvector"', () => {
+    expect(getAdapter(cfg('pgvector'))).toBeInstanceOf(PgvectorAdapter)
   })
 
   it('throws for unsupported dbType "activespaces"', () => {
