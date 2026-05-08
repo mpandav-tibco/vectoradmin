@@ -57,6 +57,57 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ])
 }
 
+interface EnrichedError { message: string; hint?: string }
+
+function enrichError(raw: string, dbType: VectorDBType, dbLabel: string): EnrichedError {
+  const r = raw.toLowerCase()
+
+  if (r.includes('timed out'))
+    return {
+      message: `${dbLabel} didn't respond within 8 s.`,
+      hint: dbType !== 'pinecone'
+        ? `Start it locally: docker compose${dbType !== 'weaviate' ? ` --profile ${dbType}` : ''} up -d`
+        : 'Check the index host URL in your Pinecone console.',
+    }
+
+  if (r.includes('non-json') || r.includes('unexpected token') || r.includes('<!doctype') || r.includes('html'))
+    return {
+      message: 'The server returned an HTML page instead of a JSON API response.',
+      hint: 'Check the host, port, and proxy settings — the address may be pointing at the wrong server.',
+    }
+
+  if (r.includes('401') || r.includes('unauthorized'))
+    return { message: 'Authentication failed (HTTP 401).', hint: 'Check your API key.' }
+
+  if (r.includes('403') || r.includes('forbidden'))
+    return { message: 'Access denied (HTTP 403).', hint: 'Your API key may not have the required permissions.' }
+
+  if (r.includes('404'))
+    return {
+      message: 'Endpoint not found (HTTP 404).',
+      hint: `Make sure the host and port are correct and ${dbLabel} is actually running there.`,
+    }
+
+  if (r.includes('502') || r.includes('bad gateway'))
+    return {
+      message: 'Proxy got no response from the database (502 Bad Gateway).',
+      hint: dbType !== 'pinecone'
+        ? `Start the container: docker compose${dbType !== 'weaviate' ? ` --profile ${dbType}` : ''} up -d`
+        : 'Check that the Pinecone index is active.',
+    }
+
+  if (r.includes('failed to fetch') || r.includes('networkerror') || r.includes('load failed') || r.includes('econnrefused'))
+    return {
+      message: 'Cannot reach the database — network error.',
+      hint: 'Check that the host and port are correct and the service is running.',
+    }
+
+  if (r.includes('not yet supported'))
+    return { message: raw }
+
+  return { message: raw }
+}
+
 export function ConnectPage() {
   const navigate = useNavigate()
   const { setConfig, setStatus, savedConnections, saveConnection, deleteConnection } = useConnectionStore()
@@ -64,7 +115,7 @@ export function ConnectPage() {
 
   const [loading, setLoading] = useState(false)
   const [connectingIdx, setConnectingIdx] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<EnrichedError | null>(null)
   const [showNewForm, setShowNewForm] = useState(savedConnections.length === 0)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [form, setForm] = useState<ConnectionConfig>({
@@ -86,7 +137,7 @@ export function ConnectPage() {
       scheme: opt.type === 'pinecone' ? 'https' : f.scheme,
       host: opt.type === 'pinecone' ? '' : f.host,
     }))
-    setError(null)
+    setError(null)   // reset error when DB type changes
   }
 
   const connectWith = async (cfg: ConnectionConfig, savedIdx?: number) => {
@@ -106,13 +157,14 @@ export function ConnectPage() {
         }
         navigate('/')
       } else {
-        setStatus('error', health.error)
-        setError(health.error ?? `Could not connect to ${DB_LABELS[cfg.dbType] ?? cfg.dbType}`)
+        const raw = health.error ?? `Could not connect to ${DB_LABELS[cfg.dbType] ?? cfg.dbType}`
+        setStatus('error', raw)
+        setError(enrichError(raw, cfg.dbType, DB_LABELS[cfg.dbType] ?? cfg.dbType))
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Connection failed'
-      setStatus('error', msg)
-      setError(msg)
+      const raw = err instanceof Error ? err.message : 'Connection failed'
+      setStatus('error', raw)
+      setError(enrichError(raw, cfg.dbType, DB_LABELS[cfg.dbType] ?? cfg.dbType))
     } finally {
       setLoading(false)
       setConnectingIdx(null)
@@ -324,9 +376,14 @@ export function ConnectPage() {
               </div>
 
               {error && (
-                <div className="flex items-start gap-2 p-3 bg-red-900/20 border border-red-800 rounded-md text-sm text-red-400">
-                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  {error}
+                <div className="p-3 bg-red-900/20 border border-red-800 rounded-md space-y-1">
+                  <div className="flex items-start gap-2 text-sm text-red-400">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span>{error.message}</span>
+                  </div>
+                  {error.hint && (
+                    <p className="text-xs text-red-400/70 pl-6">{error.hint}</p>
+                  )}
                 </div>
               )}
 

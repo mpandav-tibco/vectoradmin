@@ -80,6 +80,48 @@ services:
     networks:
       - vector-net
 
+  # ── pgvector / PostgREST — optional: docker compose --profile pgvector up ────
+  # PostgREST exposes Postgres tables as a REST API that the pgvector adapter uses.
+  # The init script creates the pgvector extension and a sample `documents` table.
+  # After tables change, restart PostgREST: docker compose --profile pgvector restart postgrest
+  postgres:
+    profiles: [pgvector]
+    image: pgvector/pgvector:pg16
+    container_name: postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vectordb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-pgvector.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - vector-net
+
+  postgrest:
+    profiles: [pgvector]
+    image: postgrest/postgrest:v12.2.0
+    container_name: postgrest-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PGRST_DB_URI: postgres://postgres:postgres@postgres:5432/vectordb
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: postgres
+      PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vector-net
+
 networks:
   vector-net:
     driver: bridge
@@ -89,3 +131,4 @@ volumes:
   qdrant_data:
   chroma_data:
   ollama_data:
+  postgres_data:

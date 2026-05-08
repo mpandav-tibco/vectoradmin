@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, X, Loader2, CheckCircle, AlertCircle, ChevronDown, ChevronUp, History, Trash2, TriangleAlert, RotateCcw } from 'lucide-react'
 import { useCollections } from '@/hooks/useCollections'
@@ -27,7 +27,8 @@ export function IngestPage() {
   const [showHistory, setShowHistory] = useState(false)
   const [progress, setProgress] = useState<Progress>({ step: 'idle', current: 0, total: 0 })
   const [result, setResult] = useState<{ chunks: number; success: number; duration: number; errors: string[] } | null>(null)
-  const [jobId] = useState(() => generateId())
+  const [extractionWarnings, setExtractionWarnings] = useState<string[]>([])
+  const jobIdRef = useRef(generateId())
 
   // Mark any jobs still "running" on mount as interrupted (tab was closed mid-job)
   useEffect(() => {
@@ -52,7 +53,12 @@ export function IngestPage() {
   const handleIngest = async () => {
     if (!className || (files.length === 0 && !pastedText.trim())) return
     setResult(null)
+    setExtractionWarnings([])
     const t0 = Date.now()
+
+    // Fresh ID for each run so concurrent history entries don't overwrite each other
+    jobIdRef.current = generateId()
+    const jobId = jobIdRef.current
 
     startIngestJob({
       id: jobId,
@@ -64,17 +70,28 @@ export function IngestPage() {
     })
 
     try {
-      // Extract text
+      // Extract text — continue past individual file failures so one bad file
+      // doesn't abort the rest of the batch
       setProgress({ step: 'extracting', current: 0, total: files.length + (pastedText ? 1 : 0) })
       const texts: string[] = []
+      const warnings: string[] = []
       for (const file of files) {
-        texts.push(await extractTextFromFile(file))
+        try {
+          texts.push(await extractTextFromFile(file))
+        } catch (err) {
+          warnings.push(err instanceof Error ? err.message : `Could not read "${file.name}"`)
+        }
         setProgress((p) => ({ ...p, current: p.current + 1 }))
       }
+      if (warnings.length > 0) setExtractionWarnings(warnings)
       if (pastedText.trim()) texts.push(pastedText)
 
+      if (texts.length === 0) {
+        throw new Error('No text could be extracted from the selected files. ' + warnings.join(' '))
+      }
+
       // Chunk
-      updateIngestJob(jobId, { stage: 'chunking' })
+      updateIngestJob(jobIdRef.current, { stage: 'chunking' })
       setProgress({ step: 'chunking', current: 0, total: texts.length })
       const allChunks: string[] = []
       for (const text of texts) {
@@ -82,10 +99,10 @@ export function IngestPage() {
         allChunks.push(...chunks.map((c) => c.text))
         setProgress((p) => ({ ...p, current: p.current + 1 }))
       }
-      updateIngestJob(jobId, { chunks: allChunks.length })
+      updateIngestJob(jobIdRef.current, { chunks: allChunks.length })
 
       // Embed in batches of 50
-      updateIngestJob(jobId, { stage: 'embedding' })
+      updateIngestJob(jobIdRef.current, { stage: 'embedding' })
       setProgress({ step: 'embedding', current: 0, total: allChunks.length })
       const BATCH = 50
       const vectors: number[][] = []
@@ -94,11 +111,11 @@ export function IngestPage() {
         const batchVectors = await embed(batch, embeddingConfig)
         vectors.push(...batchVectors)
         setProgress((p) => ({ ...p, current: Math.min(i + BATCH, allChunks.length) }))
-        updateIngestJob(jobId, { succeeded: Math.min(i + BATCH, allChunks.length) })
+        updateIngestJob(jobIdRef.current, { succeeded: Math.min(i + BATCH, allChunks.length) })
       }
 
       // Upsert
-      updateIngestJob(jobId, { stage: 'upserting' })
+      updateIngestJob(jobIdRef.current, { stage: 'upserting' })
       setProgress({ step: 'upserting', current: 0, total: allChunks.length })
       const objects = allChunks.map((text, i) => ({
         id: generateId(),
@@ -110,11 +127,11 @@ export function IngestPage() {
       const duration = Date.now() - t0
       setProgress({ step: 'done', current: allChunks.length, total: allChunks.length })
       setResult({ chunks: allChunks.length, success: res.success, duration, errors: res.errors })
-      updateIngestJob(jobId, { status: 'done', succeeded: res.success, failed: res.errors.length, duration })
+      updateIngestJob(jobIdRef.current, { status: 'done', succeeded: res.success, failed: res.errors.length, duration })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed'
       setProgress({ step: 'error', current: 0, total: 0, error: msg })
-      updateIngestJob(jobId, { status: 'error', errorMessage: msg })
+      updateIngestJob(jobIdRef.current, { status: 'error', errorMessage: msg })
     }
   }
 
@@ -272,6 +289,21 @@ export function IngestPage() {
         </div>
       )}
 
+      {/* Extraction warnings — shown when some files failed but others succeeded */}
+      {extractionWarnings.length > 0 && (
+        <div className="card p-4 space-y-2 border-amber-800/50 bg-amber-900/10">
+          <div className="flex items-center gap-2 text-amber-400 text-sm font-medium">
+            <TriangleAlert className="w-4 h-4 flex-shrink-0" />
+            {extractionWarnings.length === 1 ? '1 file skipped' : `${extractionWarnings.length} files skipped`}
+          </div>
+          <ul className="space-y-1">
+            {extractionWarnings.map((w, i) => (
+              <li key={i} className="text-xs text-amber-500/80">{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Result */}
       {result && (
         <div className="card p-4 space-y-2">
@@ -290,7 +322,7 @@ export function IngestPage() {
             )}
           </div>
           {result.errors.length > 0 && (
-            <div className="text-xs text-red-400">{result.errors.length} errors: {result.errors[0]}</div>
+            <div className="text-xs text-red-400">{result.errors.length} upsert error{result.errors.length > 1 ? 's' : ''}: {result.errors[0]}</div>
           )}
         </div>
       )}

@@ -96,8 +96,10 @@ export async function extractTextFromFile(file: File): Promise<string> {
     return file.text()
   }
   if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-    // Basic PDF extraction — in production use pdfjs-dist
-    return `[PDF: ${file.name} — install pdfjs-dist for full extraction]`
+    throw new Error(
+      `PDF extraction is not supported for "${file.name}". ` +
+      `Convert to .txt and re-upload, or paste the text in the text area below.`
+    )
   }
   if (
     file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
