@@ -64,6 +64,7 @@ export function RAGPage() {
   const [context, setContext] = useState('')
   const [showConfig, setShowConfig] = useState(true)
   const [activeTab, setActiveTab] = useState<'answer' | 'context' | 'sources' | 'history'>('answer')
+  const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set())
 
   const selectedCollection = collections?.find((c) => c.name === className)
   const properties = selectedCollection?.properties?.map((p) => p.name) ?? ['content']
@@ -101,6 +102,7 @@ export function RAGPage() {
     setContext('')
     setCurrentStep(null)
     setCompletedSteps([])
+    setExpandedSources(new Set())
     setActiveTab('answer')
     try {
       const result = await runRAGQuery({
@@ -286,18 +288,97 @@ export function RAGPage() {
           {/* Sources */}
           {activeTab === 'sources' && (
             <div className="space-y-2">
-              {sources.length === 0 && <p className="text-gray-600 text-sm">No sources yet</p>}
-              {sources.map((s, i) => (
-                <div key={s.id} className="card p-3 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono text-gray-500">{i + 1}. {s.id.slice(0, 16)}…</span>
-                    <span className="badge bg-accent-muted text-accent">{s.score.toFixed(4)}</span>
-                  </div>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    {truncate(String(s.properties.content ?? JSON.stringify(s.properties)), 300)}
-                  </p>
+              {sources.length === 0 && <p className="text-gray-600 text-sm">No sources yet — run a query first.</p>}
+
+              {sources.length > 0 && (
+                <div className="flex items-center justify-between pb-1">
+                  <span className="text-xs text-gray-500">{sources.length} source{sources.length !== 1 ? 's' : ''} retrieved</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedSources(
+                        expandedSources.size === sources.length
+                          ? new Set()
+                          : new Set(sources.map((_, i) => i))
+                      )
+                    }
+                    className="text-xs text-gray-500 hover:text-gray-200 transition-colors"
+                  >
+                    {expandedSources.size === sources.length ? 'Collapse all' : 'Expand all'}
+                  </button>
                 </div>
-              ))}
+              )}
+
+              {sources.map((s, i) => {
+                const isExpanded = expandedSources.has(i)
+                const toggleExpand = () =>
+                  setExpandedSources((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(i)) next.delete(i); else next.add(i)
+                    return next
+                  })
+
+                const contentRaw = s.properties.content
+                const contentStr = contentRaw != null ? String(contentRaw) : null
+                const { content: _c, ...otherProps } = s.properties
+                const propEntries = Object.entries(otherProps)
+
+                return (
+                  <div key={`${s.id}-${i}`} className="card overflow-hidden">
+                    {/* Header row — click anywhere to toggle */}
+                    <button
+                      type="button"
+                      onClick={toggleExpand}
+                      className="w-full px-3 py-2.5 flex items-center gap-2 hover:bg-surface-300/40 transition-colors text-left"
+                    >
+                      <span className="text-[10px] font-bold text-gray-500 bg-surface-300 rounded px-1.5 py-0.5 flex-shrink-0 tabular-nums">
+                        {i + 1}
+                      </span>
+                      <span className="text-xs font-mono text-gray-500 truncate flex-1" title={s.id}>
+                        {isExpanded ? s.id : `${s.id.slice(0, 20)}…`}
+                      </span>
+                      {propEntries.length > 0 && !isExpanded && (
+                        <span className="text-[10px] text-gray-600 flex-shrink-0 hidden sm:inline">
+                          +{propEntries.length} prop{propEntries.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      <span className="badge bg-accent-muted text-accent flex-shrink-0 tabular-nums">
+                        {s.score.toFixed(4)}
+                      </span>
+                      {isExpanded
+                        ? <ChevronUp className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                        : <ChevronDown className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />}
+                    </button>
+
+                    {/* Content — truncated when collapsed, full when expanded */}
+                    <div className="px-3 pb-3">
+                      {contentStr != null ? (
+                        <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
+                          {isExpanded ? contentStr : truncate(contentStr, 200)}
+                        </p>
+                      ) : (
+                        <p className="text-xs font-mono text-gray-400 leading-relaxed whitespace-pre-wrap">
+                          {isExpanded
+                            ? JSON.stringify(s.properties, null, 2)
+                            : truncate(JSON.stringify(s.properties), 200)}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Other properties — only visible when expanded */}
+                    {isExpanded && propEntries.length > 0 && (
+                      <div className="px-3 pb-3 pt-2 border-t border-border space-y-1.5">
+                        {propEntries.map(([k, v]) => (
+                          <div key={k} className="grid grid-cols-[minmax(6rem,auto)_1fr] gap-x-3 text-xs">
+                            <span className="text-gray-500 font-mono truncate">{k}</span>
+                            <span className="text-gray-400 font-mono break-all">{String(v ?? '')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -336,7 +417,7 @@ export function RAGPage() {
                 <div key={entry.id} className="card p-3 space-y-1">
                   <div className="flex items-center justify-between gap-2">
                     <button
-                      onClick={() => { setQuery(entry.query); setAnswer(entry.answer); setSources(entry.sources); setActiveTab('answer') }}
+                      onClick={() => { setQuery(entry.query); setAnswer(entry.answer); setSources(entry.sources); setExpandedSources(new Set()); setActiveTab('answer') }}
                       className="flex items-center gap-2 text-gray-500 text-xs hover:text-gray-300 flex-1 min-w-0"
                     >
                       <Clock className="w-3 h-3 flex-shrink-0" />
@@ -357,7 +438,7 @@ export function RAGPage() {
                     </button>
                   </div>
                   <button
-                    onClick={() => { setQuery(entry.query); setAnswer(entry.answer); setSources(entry.sources); setActiveTab('answer') }}
+                    onClick={() => { setQuery(entry.query); setAnswer(entry.answer); setSources(entry.sources); setExpandedSources(new Set()); setActiveTab('answer') }}
                     className="w-full text-left"
                   >
                     <p className="text-sm text-gray-200 font-medium">{truncate(entry.query, 80)}</p>
